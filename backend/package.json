@@ -1,0 +1,62 @@
+{
+  "name": "mci-einvoice-backend",
+  "version": "1.1.0",
+  "private": true,
+  "description": "UAE e-invoicing customer data collection — API (Express + MongoDB)",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:memory": "USE_MEMORY_DB=1 tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "seed": "tsx src/seeds/seed.ts",
+    "seed:prod": "node dist/seeds/seed.js",
+    "demo:load": "tsx src/seeds/demo.ts load",
+    "demo:clear": "tsx src/seeds/demo.ts clear",
+    "demo:load:prod": "node dist/seeds/demo.js load",
+    "demo:clear:prod": "node dist/seeds/demo.js clear",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "csv-parse": "^7.0.3",
+    "dotenv": "^18.0.9",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.11.3",
+    "multer": "^2.5.0",
+    "nodemailer": "^10.2.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.18.0",
+    "@types/nodemailer": "^7.0.0",
+    "@types/supertest": "^7.2.1",
+    "mongodb-memory-server": "^11.3.0",
+    "oxlint": "^1.89.0",
+    "pino-pretty": "^13.2.0",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

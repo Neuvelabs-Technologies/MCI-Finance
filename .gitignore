@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Secrets — never commit real environment files (the .env.example files ARE committed)
+.env
+.env.*
+!.env.example
+
+# Customer documents and data
+backend/uploads/
+uploads/
+backups/
+
+# Local backups of old versions (contain old .env files)
+_archive/
+
+# Logs and OS/editor files
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/

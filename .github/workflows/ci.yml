@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - name: Validation rules are identical in both apps
+        run: npm run check:rules
+      - run: npm run lint
+      - run: npm --prefix backend run typecheck
+      - run: npm --prefix frontend run typecheck
+      - name: Tests (in-memory MongoDB)
+        run: npm test
+      - run: npm run build
+      - name: Production dependency audit
+        run: |
+          npm audit --omit=dev --audit-level=high --prefix backend
+          npm audit --omit=dev --audit-level=high --prefix frontend
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t einvoice-backend ./backend
+      - run: docker build -t einvoice-frontend ./frontend

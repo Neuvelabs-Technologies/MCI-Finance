@@ -1,0 +1,163 @@
+# Operations runbook
+
+For IT and whoever runs the server. For how the finance team uses the system, see the **Guide** page inside the app (`/admin/guide`).
+
+---
+
+## 1. What runs where
+
+```
+  Customers / finance team (browser)
+              │  HTTPS
+              ▼
+   ┌──────────────────────┐     your HTTPS proxy (nginx, Caddy, Azure App Gateway…)
+   │  frontend container  │     terminates TLS and forwards to port 8080
+   │  nginx :80           │──── serves the React app
+   │                      │──── /api/*  ───────────┐
+   └──────────────────────┘                        ▼
+                                     ┌──────────────────────┐
+                                     │  backend container   │  Express API :4000 (internal only)
+                                     │  Node 22             │  hourly reminder job
+                                     └─────────┬────────────┘
+                                               │
+                    ┌──────────────────────────┴──────────────┐
+                    ▼                                         ▼
+          ┌──────────────────┐                     ┌────────────────────┐
+          │ mongo container  │                     │ uploads volume     │
+          │ volume: mongo    │                     │ customer documents │
+          └──────────────────┘                     └────────────────────┘
+```
+
+- Only the **frontend** port is published. The browser talks to one address, so the admin login cookie works without CORS.
+- **Customer documents** (licences, Emirates IDs, passports, bank letters) live in the `uploads` volume, never in the web root. They are served only through signed-in admin API routes.
+- The **reminder job** runs inside the backend, once an hour. Run **one** backend instance; two would send reminders twice.
+
+## 2. First deployment
+
+```bash
+git clone <repo> /opt/einvoice && cd /opt/einvoice
+cp backend/.env.example backend/.env
+# Edit backend/.env — at least:
+#   JWT_SECRET        openssl rand -base64 48
+#   PUBLIC_BASE_URL   https://einvoice.wearemci.com   (the address customers open)
+#   COOKIE_SECURE     true
+#   ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME         (first admin; change the password after first sign-in)
+#   SMTP_* / MAIL_FROM / NOTIFY_EMAILS
+docker compose up -d --build
+docker compose ps            # all three should become "healthy"
+```
+
+Point the HTTPS proxy at port **8080** (change with `APP_PORT=… docker compose up -d`). Allow request bodies of **80 MB** (customers upload up to six 10 MB documents).
+
+Then sign in at `https://<host>/admin` and follow the **Before you go live** checklist on the Overview page.
+
+## 3. Configuration reference (`backend/.env`)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PUBLIC_BASE_URL` | `http://localhost:5173` | Address customers open; used in every form link and in emails. **https in production.** |
+| `JWT_SECRET` | — | Long random string. The server refuses to start in production with the default. Changing it signs everyone out. |
+| `COOKIE_SECURE` | `false` | `true` behind HTTPS. |
+| `MONGO_URI` | `mongodb://127.0.0.1:27017/mci_einvoice` | Set by docker-compose to the `mongo` container. |
+| `UPLOAD_DIR` | `./uploads` | Set by docker-compose to `/data/uploads` (the `uploads` volume). |
+| `MAX_FILE_MB` | `10` | Per document. Keep nginx `client_max_body_size` ≥ 6 × this. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | | Used **only** when there are no admins yet. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | | Empty `SMTP_HOST` = emails are logged, not sent. Microsoft 365: `smtp.office365.com`, 587, `SMTP_SECURE=false`, SMTP AUTH enabled on the mailbox. |
+| `NOTIFY_EMAILS` | | Comma-separated; told about every submission. |
+| `LOG_LEVEL` | `info` (prod) | `debug`, `info`, `warn`, `error`. |
+| `ALLOW_DEMO_DATA` | off in production | `true` only on a **staging** server used for training. |
+| `QUICK_LOGIN` | off in production | One-click sign-in buttons on the login page (no password). Always on in development. `true` only on a **staging/demo** server — never the live one. |
+| `USE_MEMORY_DB`, `DEMO_DATA` | | Development only. |
+
+At startup the backend logs a `[config]` warning for anything risky (HTTP links, insecure cookies, default admin password, no SMTP, demo data allowed). Check `docker compose logs backend | grep config` after every change.
+
+## 4. Health, logs and monitoring
+
+- **Health check:** `GET /api/health` → `200 {"ok":true,"db":"up","version":"1.1.0"}`, or `503` when MongoDB is unreachable. Docker uses it; point your uptime monitor at `https://<host>/api/health` too.
+- **Logs:** JSON lines in production (one per request, with a request id). `docker compose logs -f backend`. Logs rotate at 5 × 20 MB.
+- **Request ids:** server errors return a `requestId` to the browser and the same id is in the log line. Ask users for it when they report a problem.
+- **Version and status** are also visible to admins under Settings → System.
+
+## 5. Backups
+
+What to back up: the **MongoDB database** and the **uploads volume**. One without the other is not enough.
+
+```bash
+./scripts/backup.sh /var/backups/einvoice      # keeps the last 14
+```
+
+Schedule it nightly (example cron line in the script header) and copy the folder to storage **off this server**. The backups contain identity documents and bank details: encrypt them at rest and restrict access.
+
+### Restore from a backup
+
+```bash
+B=/var/backups/einvoice/2026-11-02_0215
+docker compose stop backend
+docker compose exec -T mongo mongorestore --archive --gzip --drop < "$B/mongo.archive.gz"
+docker compose run --rm --no-deps -T --entrypoint sh backend -c 'rm -rf /data/uploads/* && tar -xzf - -C /data' < "$B/uploads.tar.gz"
+docker compose start backend
+```
+
+Test a restore on a spare machine at least once before go-live.
+
+## 6. Upgrades
+
+```bash
+cd /opt/einvoice
+./scripts/backup.sh /var/backups/einvoice     # always back up first
+git pull
+docker compose up -d --build
+docker compose ps && curl -fsS https://<host>/api/health
+```
+
+Always deploy **frontend and backend together** — they are released as one version.
+
+Notes for upgrading to **1.1.0**:
+- Existing data needs no migration. On first start, emails switch from the old blue to MCI rose (only if the colour was never changed).
+- Existing admin sessions stay signed in.
+
+## 7. Staging and demo data
+
+For a training or demo server, deploy a second copy with its own database and set `ALLOW_DEMO_DATA=true` (and `QUICK_LOGIN=true` if presenters should sign in with one click). Admins can then load and remove sample customers under Settings → System, or from the command line:
+
+```bash
+docker compose exec backend npm run demo:load:prod
+docker compose exec backend npm run demo:clear:prod
+```
+
+Demo customers have `DEMO-` codes and `.example` addresses and are never emailed. Never enable demo data on the live server.
+
+## 8. Security checklist
+
+- [ ] HTTPS only; `COOKIE_SECURE=true`; `PUBLIC_BASE_URL` starts with `https://`.
+- [ ] Strong `JWT_SECRET`, stored only in `backend/.env` (not in git).
+- [ ] The first admin's password changed after first sign-in; each person has their own account.
+- [ ] Only port 8080 (or your proxy) reachable from outside; MongoDB not published.
+- [ ] Nightly encrypted backups, copied off the server, restore tested.
+- [ ] Server OS and Docker images updated regularly (`docker compose pull && docker compose up -d --build`).
+- [ ] `ALLOW_DEMO_DATA` and `QUICK_LOGIN` unset on the live server.
+
+Built in: rate-limited sign-in (10 attempts / 15 min) and form submissions, bcrypt passwords, 12-hour httpOnly sessions revoked on password change or user removal, uploaded files type-checked by content, security headers (CSP, nosniff, frame options) on both nginx and the API, and an audit log of every action.
+
+## 9. Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Backend container restarts | `docker compose logs backend` — a `[config]` FATAL line names the setting; otherwise MongoDB isn't reachable. |
+| `/api/health` returns 503 | MongoDB is down or unreachable: `docker compose ps mongo`, disk space. |
+| Emails appear only in logs | `SMTP_HOST` empty. Use Settings → Emails → Send test after setting it. |
+| Emails fail with auth errors | Microsoft 365: SMTP AUTH must be enabled for the mailbox; use an app password if MFA is on. |
+| Customers' links point to the wrong address | `PUBLIC_BASE_URL`. Existing links change automatically (they are built from the token). |
+| Upload fails with "file too large" | `MAX_FILE_MB` and the proxy's request-size limit. |
+| Admins are signed out unexpectedly | `JWT_SECRET` changed, or a password was changed in another browser. |
+
+## 10. Development
+
+```bash
+npm run install:all
+npm run dev:backend:memory     # API on :4000 with a throwaway DB and demo data
+npm run dev:frontend           # http://localhost:5173/admin
+npm run check                  # rules in sync, lint, typecheck, tests
+```
+
+Sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `backend/.env`.

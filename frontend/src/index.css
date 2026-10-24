@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   MCI design tokens — the same set as MCI HR (HRMC), so every MCI app looks
+   and behaves alike. One ground colour, white surfaces, MCI rose for the main
+   action, and four status tones (success, warning, danger, info) that always
+   pair a soft background with a strong text colour.
+   --------------------------------------------------------------------------- */
+@theme inline {
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.375rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-soft-foreground: var(--primary-soft-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-chart-1: var(--chart-1);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+}
+
+:root {
+  --background: #f5f6f8;
+  --foreground: #17202b;
+  --card: #ffffff;
+  --card-foreground: #17202b;
+  --popover: #ffffff;
+  --popover-foreground: #17202b;
+  --primary: #be2f48;
+  --primary-foreground: #ffffff;
+  --primary-soft: #fbeef0;
+  --primary-soft-foreground: #a3263c;
+  --secondary: #f1f2f5;
+  --secondary-foreground: #17202b;
+  --muted: #f1f2f5;
+  --muted-foreground: #566171;
+  --accent: #f1f2f5;
+  --accent-foreground: #17202b;
+  --destructive: #b42318;
+  --border: #e3e6eb;
+  --input: #d5dae1;
+  --ring: #be2f48;
+
+  --success: #1d6f45;
+  --success-soft: #e5f3eb;
+  --warning: #8a5300;
+  --warning-soft: #fdf3e1;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --info: #22549b;
+  --info-soft: #e9f0fa;
+
+  /* Chart marks: validated against the card surface (dataviz validator, light + dark) */
+  --chart-1: #be2f48;
+
+  --radius: 0.75rem;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0f1318;
+  --foreground: #e8ebef;
+  --card: #171c23;
+  --card-foreground: #e8ebef;
+  --popover: #1c222a;
+  --popover-foreground: #e8ebef;
+  --primary: #f07185;
+  --primary-foreground: #1a0a0e;
+  --primary-soft: #3a1820;
+  --primary-soft-foreground: #f7b6c2;
+  --secondary: #232a33;
+  --secondary-foreground: #e8ebef;
+  --muted: #232a33;
+  --muted-foreground: #a3acb8;
+  --accent: #232a33;
+  --accent-foreground: #e8ebef;
+  --destructive: #f2817a;
+  --border: #2a313b;
+  --input: #3a424e;
+  --ring: #f07185;
+
+  --success: #74d3a0;
+  --success-soft: #12301f;
+  --warning: #f0bf6a;
+  --warning-soft: #33260d;
+  --danger: #f2817a;
+  --danger-soft: #3a1714;
+  --info: #8db8f2;
+  --info-soft: #14243b;
+  --chart-1: #e8607a;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground text-base antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  input[type="number"],
+  .tabular-nums,
+  td {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+}
+
+/* Subtle page transitions */
+.page-enter {
+  animation: pageFade 0.2s ease-out;
+}
+@keyframes pageFade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Tab rows and chip rows scroll sideways on a phone instead of wrapping. */
+.scroll-row {
+  scrollbar-width: none;
+}
+.scroll-row::-webkit-scrollbar {
+  display: none;
+}
+
+/* The swirl from MCI's letterhead, used as quiet background art.
+   The image is grey on white: multiply hides the white in light mode;
+   in dark mode it is inverted and screened so only the faint curves show. */
+.mci-art {
+  pointer-events: none;
+  user-select: none;
+  mix-blend-mode: multiply;
+  opacity: 0.7;
+}
+.dark .mci-art {
+  filter: invert(1);
+  mix-blend-mode: screen;
+  opacity: 0.08;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  aside,
+  header,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}

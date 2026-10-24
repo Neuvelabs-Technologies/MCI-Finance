@@ -1,0 +1,24 @@
+{
+  "name": "mci-einvoice-form",
+  "version": "1.1.0",
+  "private": true,
+  "description": "UAE e-invoicing customer data collection (token-link form + admin panel) — MERN + TypeScript",
+  "scripts": {
+    "install:all": "npm --prefix backend install && npm --prefix frontend install",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:backend:memory": "npm --prefix backend run dev:memory",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "typecheck": "npm run check:rules && npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "test": "npm --prefix backend test",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "demo:load": "npm --prefix backend run demo:load",
+    "demo:clear": "npm --prefix backend run demo:clear",
+    "sync:rules": "cp backend/src/utils/rules.ts frontend/src/lib/rules.ts && echo 'Copied backend rules.ts to frontend'",
+    "check:rules": "cmp -s backend/src/utils/rules.ts frontend/src/lib/rules.ts && echo 'rules.ts in sync' || (echo 'rules.ts differs between backend and frontend: run npm run sync:rules' && exit 1)"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
