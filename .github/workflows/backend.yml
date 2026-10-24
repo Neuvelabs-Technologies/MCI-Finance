@@ -1,0 +1,133 @@
+name: Deploy MCI CRM Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: mci-crm-backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          tags: mci-crm-backend:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/mci-crm-backend.tar
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          SSH_HOST: ${{ secrets.TENCENT_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload Docker image
+        env:
+          SSH_HOST: ${{ secrets.TENCENT_HOST }}
+          SSH_USER: ${{ secrets.TENCENT_USER }}
+        run: |
+          scp -i ~/.ssh/deploy_key \
+            /tmp/mci-crm-backend.tar \
+            "$SSH_USER@$SSH_HOST:/tmp/mci-crm-backend.tar"
+
+      - name: Deploy backend
+        env:
+          SSH_HOST: ${{ secrets.TENCENT_HOST }}
+          SSH_USER: ${{ secrets.TENCENT_USER }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "IMAGE_TAG='$IMAGE_TAG' bash -s" <<'REMOTE'
+            set -eu
+
+            CONTAINER="mci-crm-backend"
+            IMAGE="mci-crm-backend:$IMAGE_TAG"
+            ENV_FILE="/home/ubuntu/mci-crm/.env"
+            ARCHIVE="/tmp/mci-crm-backend.tar"
+            BACKUP_CONTAINER="mci-crm-backend-rollback"
+            PORT="4000"
+
+            test -f "$ENV_FILE"
+            test -s "$ARCHIVE"
+
+            docker load -i "$ARCHIVE"
+            rm -f "$ARCHIVE"
+
+            HAD_OLD=false
+            OLD_IMAGE=""
+
+            if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+              OLD_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")
+              docker rm -f "$BACKUP_CONTAINER" >/dev/null 2>&1 || true
+              docker rename "$CONTAINER" "$BACKUP_CONTAINER"
+              HAD_OLD=true
+            fi
+
+            rollback() {
+              echo "Deployment failed; restoring previous container."
+              docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+              if [ "$HAD_OLD" = true ]; then
+                docker rename "$BACKUP_CONTAINER" "$CONTAINER" || true
+                docker start "$CONTAINER" || true
+              fi
+            }
+
+            if ! docker run -d \
+              --name "$CONTAINER" \
+              --restart unless-stopped \
+              --env-file "$ENV_FILE" \
+              -p "127.0.0.1:$PORT:$PORT" \
+              "$IMAGE"; then
+              rollback
+              exit 1
+            fi
+
+            HEALTHY=false
+            for i in $(seq 1 12); do
+              if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+                break
+              fi
+
+              sleep 5
+
+              if docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+                HEALTHY=true
+                break
+              fi
+            done
+
+            if [ "$HEALTHY" != true ]; then
+              docker logs --tail 100 "$CONTAINER" || true
+              rollback
+              exit 1
+            fi
+
+            if [ "$HAD_OLD" = true ]; then
+              docker rm -f "$BACKUP_CONTAINER"
+            fi
+
+            echo "MCI CRM backend container is running."
+            docker ps --filter "name=$CONTAINER"
+          REMOTE
