@@ -14,7 +14,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Lint, typecheck, tests and audit must pass before anything is deployed
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build-and-deploy:
+    needs: ci
     runs-on: ubuntu-latest
 
     steps:
@@ -48,9 +53,8 @@ jobs:
           SSH_HOST: ${{ secrets.TENCENT_HOST }}
           SSH_USER: ${{ secrets.TENCENT_USER }}
         run: |
-          scp -i ~/.ssh/deploy_key \
-            /tmp/mci-crm-backend.tar \
-            "$SSH_USER@$SSH_HOST:/tmp/mci-crm-backend.tar"
+          gzip -1 -c /tmp/mci-crm-backend.tar | ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "cat > /tmp/mci-crm-backend.tar.gz"
 
       - name: Deploy backend
         env:
@@ -65,23 +69,27 @@ jobs:
             CONTAINER="mci-crm-backend"
             IMAGE="mci-crm-backend:$IMAGE_TAG"
             ENV_FILE="/home/ubuntu/mci-crm/.env"
-            ARCHIVE="/tmp/mci-crm-backend.tar"
+            ARCHIVE="/tmp/mci-crm-backend.tar.gz"
             BACKUP_CONTAINER="mci-crm-backend-rollback"
             PORT="4000"
+            # The backend reaches MongoDB by container name on this network
+            NETWORK="test-network"
+            # Customer documents live here so they survive redeploys
+            UPLOADS_VOLUME="mci_crm_uploads"
 
             test -f "$ENV_FILE"
             test -s "$ARCHIVE"
 
-            docker load -i "$ARCHIVE"
+            gunzip -c "$ARCHIVE" | docker load
             rm -f "$ARCHIVE"
 
             HAD_OLD=false
-            OLD_IMAGE=""
 
             if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
-              OLD_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")
               docker rm -f "$BACKUP_CONTAINER" >/dev/null 2>&1 || true
               docker rename "$CONTAINER" "$BACKUP_CONTAINER"
+              # Stop it so the new container can take the port
+              docker stop "$BACKUP_CONTAINER" >/dev/null
               HAD_OLD=true
             fi
 
@@ -97,22 +105,24 @@ jobs:
             if ! docker run -d \
               --name "$CONTAINER" \
               --restart unless-stopped \
+              --network "$NETWORK" \
               --env-file "$ENV_FILE" \
+              -v "$UPLOADS_VOLUME:/data/uploads" \
               -p "127.0.0.1:$PORT:$PORT" \
+              --log-opt max-size=20m --log-opt max-file=5 \
               "$IMAGE"; then
               rollback
               exit 1
             fi
 
+            # Healthy = the API answers /api/health (which also checks MongoDB) without having restarted
             HEALTHY=false
-            for i in $(seq 1 12); do
-              if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+            for i in $(seq 1 20); do
+              sleep 3
+              if [ "$(docker inspect -f '{{.RestartCount}}' "$CONTAINER")" != "0" ]; then
                 break
               fi
-
-              sleep 5
-
-              if docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true; then
+              if curl -fsS -m 3 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
                 HEALTHY=true
                 break
               fi
@@ -128,6 +138,11 @@ jobs:
               docker rm -f "$BACKUP_CONTAINER"
             fi
 
-            echo "MCI CRM backend container is running."
+            # Keep the current and previous image (for a manual rollback); delete older ones
+            docker images mci-crm-backend --format '{{.Repository}}:{{.Tag}}' | tail -n +3 | xargs -r docker rmi || true
+            docker image prune -f >/dev/null || true
+
+            echo "MCI CRM backend container is healthy."
+            curl -fsS "http://127.0.0.1:$PORT/api/health"; echo
             docker ps --filter "name=$CONTAINER"
           REMOTE

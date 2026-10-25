@@ -9,8 +9,17 @@ on:
       - '.github/workflows/frontend.yml'
   workflow_dispatch:
 
+concurrency:
+  group: mci-crm-frontend-deploy
+  cancel-in-progress: false
+
 jobs:
-  build:
+  # Lint, typecheck, tests and audit must pass before anything is deployed
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build-and-deploy:
+    needs: ci
     runs-on: ubuntu-latest
 
     steps:
@@ -32,12 +41,35 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TENCENT_SSH_KEY }}
+          SSH_HOST: ${{ secrets.TENCENT_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      # Upload to a staging folder first, then swap into place in one step,
+      # so visitors never see a half-copied site and old build files are removed.
       - name: Deploy to Tencent Server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.TENCENT_HOST }}
-          username: ${{ secrets.TENCENT_USER }}
-          key: ${{ secrets.TENCENT_SSH_KEY }}
-          source: "frontend/dist/*"
-          target: "/var/www/html/mci-crm/"
-          strip_components: 2
+        env:
+          SSH_HOST: ${{ secrets.TENCENT_HOST }}
+          SSH_USER: ${{ secrets.TENCENT_USER }}
+        run: |
+          tar -C frontend/dist -czf - . | ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
+            "cat > /tmp/mci-crm-frontend.tar.gz"
+          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+            set -eu
+            LIVE=/var/www/html/mci-crm
+            ARCHIVE=/tmp/mci-crm-frontend.tar.gz
+            STAGE=$(mktemp -d /tmp/mci-crm-frontend.XXXXXX)
+            trap 'rm -rf "$STAGE" "$ARCHIVE"' EXIT
+            tar -xzf "$ARCHIVE" -C "$STAGE"
+            test -f "$STAGE/index.html"
+            chmod -R a+rX "$STAGE"
+            rsync -a --delete-after --delay-updates "$STAGE/" "$LIVE/"
+            echo "Frontend deployed:"; ls -la "$LIVE"
+          REMOTE
