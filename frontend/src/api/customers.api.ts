@@ -38,6 +38,8 @@ export const customersApi = {
   create: (body: CustomerInput) => http.post<{ customer: CustomerSummary }>(BASE, body),
   update: (id: string, body: CustomerInput) => http.put<{ customer: CustomerSummary }>(`${BASE}/${id}`, body),
   remove: (id: string) => http.del<Ok>(`${BASE}/${id}`),
+  /** Delete several customers and their documents. */
+  removeMany: (ids: string[]) => http.post<{ deleted: number }>(`${BASE}/delete`, { ids }),
   send: (kind: EmailKind, opts: { ids?: string[]; allPending?: boolean }) =>
     http.post<{ results: SendResult[]; smtpConfigured: boolean }>(`${BASE}/send`, { kind, ...opts }),
   markSent: (ids: string[]) => http.post<Ok>(`${BASE}/mark-sent`, { ids }),

@@ -64,7 +64,7 @@ export function SystemSettings() {
             ['Database', info.inMemoryDatabase ? <ToneChip tone="warning">Temporary (in memory)</ToneChip> : yesNo(info.database === 'connected', 'Connected', 'Disconnected')],
             ['Email sending', yesNo(info.smtpConfigured, 'Connected', 'Not connected')],
             ['Secure cookies (HTTPS)', yesNo(info.cookieSecure, 'On', 'Off')],
-            ['Upload limit', `${info.maxFileMb} MB per file`],
+            ['Upload limit', info.maxFileMb > 0 ? `${info.maxFileMb} MB per file` : 'No limit (programs and scripts refused)'],
             ['Customer link address', <span className="font-mono text-sm break-all">{info.publicBaseUrl}</span>],
             ['Submission alerts go to', info.notifyEmails.length ? info.notifyEmails.join(', ') : 'Nobody (NOTIFY_EMAILS is empty)'],
           ]}

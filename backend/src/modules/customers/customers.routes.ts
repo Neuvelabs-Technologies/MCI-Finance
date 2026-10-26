@@ -16,6 +16,7 @@ router.get('/import-template', controller.importTemplate);
 router.post('/import', importUpload, controller.importList);
 router.post('/send', controller.send);
 router.post('/mark-sent', controller.markSent);
+router.post('/delete', controller.removeMany);
 
 router.get('/:id', controller.getOne);
 router.put('/:id', controller.update);

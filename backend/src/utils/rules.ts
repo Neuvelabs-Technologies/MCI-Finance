@@ -42,6 +42,28 @@ export const FILE_FIELDS = ['tradeLicence', 'trnCertificate', 'tinCertificate', 
 export type FileField = (typeof FILE_FIELDS)[number];
 export const isFileField = (k: string): k is FileField => (FILE_FIELDS as readonly string[]).includes(k);
 
+/**
+ * Customers may upload any document or image (PDF, Word, Excel, photos, scans, zip…).
+ * Only programs and scripts are refused: the form is public, and a renamed program
+ * opened by the finance team is the one real risk.
+ */
+export const BLOCKED_FILE_EXTENSIONS = [
+  'exe', 'msi', 'msp', 'com', 'scr', 'pif', 'cpl', 'dll', 'sys', 'bat', 'cmd', 'ps1', 'psm1', 'vbs', 'vbe',
+  'js', 'jse', 'mjs', 'wsf', 'wsh', 'hta', 'jar', 'reg', 'lnk', 'inf', 'sh', 'bash', 'app', 'apk', 'dmg', 'pkg',
+  'deb', 'rpm', 'iso', 'html', 'htm', 'xhtml', 'shtml', 'php', 'asp', 'aspx', 'jsp', 'py', 'pl', 'rb',
+] as const;
+
+export const fileExtension = (name: string): string => {
+  const m = /\.([a-z0-9]{1,10})$/i.exec(name.trim());
+  return m ? m[1]!.toLowerCase() : '';
+};
+
+/** True for programs and scripts, which are never accepted. */
+export const isBlockedFileName = (name: string): boolean =>
+  (BLOCKED_FILE_EXTENSIONS as readonly string[]).includes(fileExtension(name));
+
+export const BLOCKED_FILE_MESSAGE = 'Programs and scripts can’t be uploaded. Please upload the document itself, e.g. a PDF, Word file or photo.';
+
 /** Buyer details submitted through the form, after normalisation. */
 export interface BuyerData {
   entities: string[];

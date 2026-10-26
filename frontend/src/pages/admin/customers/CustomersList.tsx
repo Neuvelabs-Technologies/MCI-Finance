@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Plus,
   Send,
+  Trash2,
   Upload,
   Users,
 } from 'lucide-react';
@@ -75,6 +76,7 @@ export default function CustomersList() {
   const [error, setError] = useState<unknown>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const [deleting, setDeleting] = useState<string[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -372,6 +374,9 @@ export default function CustomersList() {
             <Button size="sm" variant="secondary" onClick={() => void markSent([...sel])}>
               <MailCheck /> Mark as sent
             </Button>
+            <Button size="sm" variant="destructive" onClick={() => setDeleting([...sel])}>
+              <Trash2 /> Delete
+            </Button>
           </>
         }
         toolbar={
@@ -439,6 +444,28 @@ export default function CustomersList() {
           The wording comes from <b>Settings → Emails</b>. Expired links are renewed automatically before sending.
           {!smtpConfigured ? ' Email sending is not connected, so the emails will only be written to the server log.' : ''}
         </p>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title={`Delete ${plural(deleting?.length ?? 0, 'customer')}?`}
+        confirmLabel="Delete permanently"
+        confirmVariant="danger"
+        description="This permanently removes their details, all their uploaded documents (including earlier versions) and their form links. It can’t be undone."
+        onConfirm={async () => {
+          if (!deleting) return;
+          try {
+            const r = await customersApi.removeMany(deleting);
+            toast.success(`${plural(r.deleted, 'customer')} deleted`);
+            setSel(new Set());
+            void load();
+          } catch (e) {
+            toast.error(errorMessage(e));
+            throw e;
+          }
+        }}
+      >
+        <p className="text-sm text-muted-foreground">The Activity log keeps one line per customer (code and name) as a record of the deletion.</p>
       </ConfirmDialog>
     </>
   );

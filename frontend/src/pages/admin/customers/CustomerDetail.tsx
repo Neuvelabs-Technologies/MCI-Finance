@@ -43,6 +43,10 @@ import { cn } from '@/lib/utils';
 import type { AuditLog, CustomerDetail as Customer, EmailKind, Entity, ReviewStatus } from '@/types';
 import { CustomerModal } from './CustomerModal';
 
+/** PDFs and images open in the browser; everything else is downloaded (the server enforces this too). */
+const VIEWABLE = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const typeLabel = (name: string) => /\.([a-z0-9]{1,10})$/i.exec(name)?.[1]?.toUpperCase() ?? 'FILE';
+
 const yn = (v: boolean | undefined) => (v === true ? 'Yes' : v === false ? 'No' : undefined);
 const mono = (v: string | undefined) => (v ? <span className="font-mono text-[0.9rem]">{v}</span> : undefined);
 
@@ -544,14 +548,16 @@ function Documents({ c }: { c: Customer }) {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{LABELS[f]}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {m.originalName} · {fmtSize(m.size)} · {fmtDate(m.uploadedAt)}
+                      <span className="font-semibold">{typeLabel(m.originalName)}</span> · {m.originalName} · {fmtSize(m.size)} · {fmtDate(m.uploadedAt)}
                     </p>
                   </div>
-                  <Button variant="ghost" size="icon-sm" asChild>
-                    <a href={url(f)} target="_blank" rel="noreferrer" aria-label={`View ${LABELS[f]}`} title="View">
-                      <Eye />
-                    </a>
-                  </Button>
+                  {VIEWABLE.has(m.mime) ? (
+                    <Button variant="ghost" size="icon-sm" asChild>
+                      <a href={url(f)} target="_blank" rel="noreferrer" aria-label={`View ${LABELS[f]}`} title="View">
+                        <Eye />
+                      </a>
+                    </Button>
+                  ) : null}
                   <Button variant="ghost" size="icon-sm" asChild>
                     <a href={url(f, { download: true })} aria-label={`Download ${LABELS[f]}`} title="Download">
                       <Download />

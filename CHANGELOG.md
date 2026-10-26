@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 — 2026-10-26
+
+### Changed
+- **Customers can upload any document or photo** (PDF, Word, Excel, scans, iPhone HEIC, zip…) with **no size limit** by default (`MAX_FILE_MB=0`). Programs and scripts are still refused, by name and by contents, so a renamed program is caught too.
+- PDFs and images open in the browser as before; every other file type is downloaded, never opened, so an uploaded web page can't run inside the admin panel.
+- The customer's form link is checked **before** any upload is stored, so made-up links can't fill the disk.
+
+### New
+- **Bulk delete** on the Customers list: tick customers → Delete. Removes their details, all uploaded documents (including earlier versions) and their links.
+
+### Deployment note
+- Proxies in front of the app must allow large uploads: `client_max_body_size 0;` (nginx defaults to 1 MB). The bundled `frontend/nginx.conf.template` already does this.
+
 ## 1.1.0 — 2026-10-24
 
 ### Design

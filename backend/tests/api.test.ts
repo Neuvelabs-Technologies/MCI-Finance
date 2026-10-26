@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import mongoose from 'mongoose';
@@ -15,10 +16,19 @@ let app: Express;
 
 const ADMIN = { email: 'admin@test.example', password: 'TestPassword123!' };
 
-async function signedIn() {
+type Agent = ReturnType<typeof request.agent>;
+let shared: Agent | undefined;
+
+/**
+ * A signed-in admin. Reuses one session unless `fresh` is asked for, because sign-in is
+ * rate-limited (10 attempts per 15 minutes) exactly as it is in production.
+ */
+async function signedIn({ fresh = false } = {}): Promise<Agent> {
+  if (shared && !fresh) return shared;
   const agent = request.agent(app);
   const r = await agent.post('/api/auth/login').send(ADMIN);
   expect(r.status).toBe(200);
+  if (!fresh) shared = agent;
   return agent;
 }
 
@@ -76,14 +86,15 @@ describe('auth', () => {
   });
 
   it('signs out other sessions when the password changes', async () => {
-    const a = await signedIn();
-    const b = await signedIn();
+    const a = await signedIn({ fresh: true });
+    const b = await signedIn({ fresh: true });
     const next = 'AnotherPassword456!';
     expect((await a.post('/api/auth/password').send({ current: ADMIN.password, next })).status).toBe(200);
     expect((await a.get('/api/auth/me')).status).toBe(200); // this browser got a fresh session
     expect((await b.get('/api/auth/me')).status).toBe(401); // the other one is out
     // put it back for the other tests
     expect((await a.post('/api/auth/password').send({ current: next, next: ADMIN.password })).status).toBe(200);
+    shared = a; // older sessions (including the shared one) were signed out
   });
 });
 
@@ -123,44 +134,61 @@ describe('customer form', () => {
     expect(r.body.error).toBe('invalid');
   });
 
+  /** A complete, valid UAE submission. */
+  const validData = (entity: string) => ({
+    entities: [entity],
+    companyName: 'Form Co LLC',
+    country: 'United Arab Emirates',
+    tradeLicenceNo: 'TL1',
+    licenceIssuingAuthority: 'Dubai DET',
+    tradeLicenceExpiry: '2099-01-01',
+    emirate: 'Dubai',
+    vatRegistered: true,
+    trn: '100123456700003',
+    tin: '1001234567',
+    peppolId: '1001234567', // bare TIN — the server normalises it to 0235:<TIN>
+    email: 'f@form.example',
+    phone: '+971 4 123 4567',
+    address: 'Dubai',
+    bankName: 'Bank',
+    bankBranch: 'Main',
+    bankAddress: 'Dubai',
+    iban: 'AE070331234567890123456',
+    swift: 'EBILAEAD',
+    bankContact: 'RM',
+    declarantName: 'Jane',
+    declarantDesignation: 'CFO',
+    declaration: true,
+  });
+
+  const FIELDS = ['tradeLicence', 'trnCertificate', 'tinCertificate', 'signatoryIds', 'moa', 'ubo'];
+  type Upload = { field: string; data: Buffer; filename: string; contentType?: string };
+
+  /** Submit the form with a PDF for every document, replacing any given in `overrides`. */
+  async function submit(token: string, overrides: Upload[] = []) {
+    const form = await request(app).get(`/api/public/form/${token}`);
+    const entity = form.body.entities[0].id as string;
+    let req = request(app).post(`/api/public/form/${token}`).field('data', JSON.stringify(validData(entity)));
+    for (const f of FIELDS) {
+      const o = overrides.find((x) => x.field === f);
+      req = o
+        ? req.attach(f, o.data, { filename: o.filename, contentType: o.contentType ?? 'application/octet-stream' })
+        : req.attach(f, samplePdf(['test']), { filename: `${f}.pdf`, contentType: 'application/pdf' });
+    }
+    return req;
+  }
+
+  const customerDir = (id: string) => path.join(config.uploadDir, id);
+
   it('marks the form opened, accepts a valid submission and stores documents', async () => {
     const { agent, id, token } = await newCustomerToken();
     const form = await request(app).get(`/api/public/form/${token}`);
     expect(form.status).toBe(200);
-    const entity = form.body.entities[0].id as string;
 
-    const data = {
-      entities: [entity],
-      companyName: 'Form Co LLC',
-      country: 'United Arab Emirates',
-      tradeLicenceNo: 'TL1',
-      licenceIssuingAuthority: 'Dubai DET',
-      tradeLicenceExpiry: '2099-01-01',
-      emirate: 'Dubai',
-      vatRegistered: true,
-      trn: '100123456700003',
-      tin: '1001234567',
-      peppolId: '1001234567', // bare TIN — the server normalises it to 0235:<TIN>
-      email: 'f@form.example',
-      phone: '+971 4 123 4567',
-      address: 'Dubai',
-      bankName: 'Bank',
-      bankBranch: 'Main',
-      bankAddress: 'Dubai',
-      iban: 'AE070331234567890123456',
-      swift: 'EBILAEAD',
-      bankContact: 'RM',
-      declarantName: 'Jane',
-      declarantDesignation: 'CFO',
-      declaration: true,
-    };
-    const missing = await request(app).post(`/api/public/form/${token}`).field('data', JSON.stringify(data));
+    const missing = await request(app).post(`/api/public/form/${token}`).field('data', JSON.stringify(validData(form.body.entities[0].id)));
     expect(missing.status).toBe(422);
 
-    const pdf = samplePdf(['test']);
-    let req = request(app).post(`/api/public/form/${token}`).field('data', JSON.stringify(data));
-    for (const f of ['tradeLicence', 'trnCertificate', 'tinCertificate', 'signatoryIds', 'moa', 'ubo']) req = req.attach(f, pdf, { filename: `${f}.pdf`, contentType: 'application/pdf' });
-    const ok = await req;
+    const ok = await submit(token);
     expect(ok.body.errors).toBeUndefined();
     expect(ok.status).toBe(200);
 
@@ -170,16 +198,77 @@ describe('customer form', () => {
     const file = await agent.get(`/api/customers/${id}/files/tradeLicence`);
     expect(file.status).toBe(200);
     expect(file.headers['content-type']).toMatch(/pdf/);
+    expect(file.headers['content-disposition']).toMatch(/^inline/);
   });
 
-  it('rejects a file that is not really a PDF', async () => {
+  it('accepts any document type and downloads non-PDF/image files instead of opening them', async () => {
+    const { agent, id, token } = await newCustomerToken();
+    const docx = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(64, 1)]); // zip container, like a .docx
+    const r = await submit(token, [{ field: 'tradeLicence', data: docx, filename: 'Trade Licence.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }]);
+    expect(r.status).toBe(200);
+
+    const detail = await agent.get(`/api/customers/${id}`);
+    expect(detail.body.customer.files.tradeLicence.mime).toBe('application/octet-stream');
+    expect(detail.body.customer.files.tradeLicence.storedName).toMatch(/\.docx$/);
+
+    const file = await agent.get(`/api/customers/${id}/files/tradeLicence`);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-type']).toMatch(/octet-stream/);
+    expect(file.headers['content-disposition']).toMatch(/^attachment/);
+    expect(file.headers['content-security-policy']).toBe('sandbox');
+  });
+
+  it('refuses programs by name', async () => {
     const { token } = await newCustomerToken();
+    const r = await submit(token, [{ field: 'tradeLicence', data: Buffer.from('hello'), filename: 'setup.exe' }]);
+    expect(r.status).toBe(400);
+    expect(r.body.errors.tradeLicence).toMatch(/Programs and scripts/);
+  });
+
+  it('refuses a program renamed to look like a document', async () => {
+    const { agent, id, token } = await newCustomerToken();
+    const fake = Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]);
+    const r = await submit(token, [{ field: 'tradeLicence', data: fake, filename: 'licence.pdf', contentType: 'application/pdf' }]);
+    expect(r.status).toBe(400);
+    expect((await agent.get(`/api/customers/${id}`)).body.customer.status).not.toBe('submitted');
+  });
+
+  it('refuses uploads to a made-up link before storing anything', async () => {
+    const tmp = path.join(config.uploadDir, 'tmp');
+    const before = fs.readdirSync(tmp).length;
     const r = await request(app)
-      .post(`/api/public/form/${token}`)
+      .post('/api/public/form/this-token-does-not-exist-123')
       .field('data', '{}')
-      .attach('tradeLicence', Buffer.from('not a pdf'), { filename: 'x.pdf', contentType: 'application/pdf' });
-    // Validation runs first (missing fields), so the fake file never gets stored
-    expect([400, 422]).toContain(r.status);
+      .attach('tradeLicence', Buffer.alloc(1024 * 1024, 1), { filename: 'big.pdf', contentType: 'application/pdf' });
+    expect(r.status).toBe(404);
+    expect(fs.readdirSync(tmp).length).toBe(before);
+  });
+
+  it('deleting a customer removes their documents from disk', async () => {
+    const { agent, id, token } = await newCustomerToken();
+    expect((await submit(token)).status).toBe(200);
+    expect(fs.existsSync(customerDir(id))).toBe(true);
+    expect((await agent.delete(`/api/customers/${id}`)).status).toBe(200);
+    expect(fs.existsSync(customerDir(id))).toBe(false);
+  });
+
+  it('bulk delete removes several customers and their documents', async () => {
+    const agent = await signedIn();
+    const ids: string[] = [];
+    for (const code of ['B01', 'B02']) {
+      const c = await agent.post('/api/customers').send({ code, name: `Bulk ${code}`, emails: `${code}@bulk.example` });
+      const link = (await agent.get(`/api/customers/${c.body.customer.id}`)).body.customer.link as string;
+      expect((await submit(link.split('/').pop()!)).status).toBe(200);
+      ids.push(c.body.customer.id);
+    }
+    const keep = await agent.post('/api/customers').send({ code: 'KEEP', name: 'Keep me' });
+
+    const r = await agent.post('/api/customers/delete').send({ ids: [...ids, 'not-an-id'] });
+    expect(r.status).toBe(200);
+    expect(r.body.deleted).toBe(2);
+    for (const id of ids) expect(fs.existsSync(customerDir(id))).toBe(false);
+    expect(await Customer.exists({ _id: keep.body.customer.id })).toBeTruthy();
+    expect((await agent.post('/api/customers/delete').send({ ids: [] })).status).toBe(400);
   });
 });
 

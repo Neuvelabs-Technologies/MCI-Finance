@@ -6,7 +6,7 @@ import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
 import { buildExport, buildImportTemplate } from '../../services/excel.service.js';
 import { smtpConfigured } from '../../services/mailer.service.js';
-import { customerFilePath, deleteCustomerFiles } from '../../services/storage.service.js';
+import { UNKNOWN_TYPE, VIEWABLE_TYPES, customerFilePath, deleteCustomerFiles } from '../../services/storage.service.js';
 import { badRequest, notFound } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { XLSX_MIME, allEmailsValid, isId, parseEmails, str } from '../../utils/http.js';
@@ -165,6 +165,21 @@ export async function remove(req: Request, res: Response) {
   res.json({ ok: true });
 }
 
+/** Delete several customers, with their documents, at once. Unknown or invalid ids are ignored. */
+export async function removeMany(req: Request, res: Response) {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).filter(isId) : [];
+  if (!ids.length) throw badRequest('No customers selected');
+  let deleted = 0;
+  for (const id of ids) {
+    const c = await Customer.findByIdAndDelete(id);
+    if (!c) continue;
+    deleteCustomerFiles(c._id);
+    await audit(req, 'customer.deleted', { details: { code: c.code, name: c.name } });
+    deleted++;
+  }
+  res.json({ deleted });
+}
+
 export async function regenerateLink(req: Request, res: Response) {
   const c = await findOr404(req.params.id);
   const s = await Settings.get();
@@ -198,8 +213,12 @@ export async function file(req: Request, res: Response) {
   const p = customerFilePath(c._id, meta.storedName);
   if (!p) throw notFound('File missing on disk');
   const name = `${c.code}-${field}${path.extname(meta.storedName)}`;
-  res.type(meta.mime);
-  res.set('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename="${name}"`);
+  // Only PDFs and images (recognised from their contents) open in the browser. Anything else
+  // downloads, and the sandbox stops an uploaded web page or SVG from running in the admin panel.
+  const viewable = VIEWABLE_TYPES.has(meta.mime) && !req.query.download;
+  res.type(viewable ? meta.mime : UNKNOWN_TYPE);
+  res.set('Content-Disposition', `${viewable ? 'inline' : 'attachment'}; filename="${name}"`);
+  res.set('Content-Security-Policy', 'sandbox');
   res.set('Cache-Control', 'private, no-store');
   res.sendFile(p);
 }

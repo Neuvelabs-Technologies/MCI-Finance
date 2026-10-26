@@ -47,7 +47,7 @@ docker compose up -d --build
 docker compose ps            # all three should become "healthy"
 ```
 
-Point the HTTPS proxy at port **8080** (change with `APP_PORT=… docker compose up -d`). Allow request bodies of **80 MB** (customers upload up to six 10 MB documents).
+Point the HTTPS proxy at port **8080** (change with `APP_PORT=… docker compose up -d`). Allow large request bodies: uploads have **no size limit** by default, so set `client_max_body_size 0;` on your proxy (nginx's own default is only 1 MB) and generous timeouts.
 
 Then sign in at `https://<host>/admin` and follow the **Before you go live** checklist on the Overview page.
 
@@ -60,7 +60,7 @@ Then sign in at `https://<host>/admin` and follow the **Before you go live** che
 | `COOKIE_SECURE` | `false` | `true` behind HTTPS. |
 | `MONGO_URI` | `mongodb://127.0.0.1:27017/mci_einvoice` | Set by docker-compose to the `mongo` container. |
 | `UPLOAD_DIR` | `./uploads` | Set by docker-compose to `/data/uploads` (the `uploads` volume). |
-| `MAX_FILE_MB` | `10` | Per document. Keep nginx `client_max_body_size` ≥ 6 × this. |
+| `MAX_FILE_MB` | `0` | Per-document size limit in MB; `0` = no limit. Any document type is accepted; programs and scripts are always refused. If you set a limit, keep the proxy's `client_max_body_size` ≥ 6 × this. |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | | Used **only** when there are no admins yet. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | | Empty `SMTP_HOST` = emails are logged, not sent. Microsoft 365: `smtp.office365.com`, 587, `SMTP_SECURE=false`, SMTP AUTH enabled on the mailbox. |
 | `NOTIFY_EMAILS` | | Comma-separated; told about every submission. |
@@ -148,7 +148,7 @@ Built in: rate-limited sign-in (10 attempts / 15 min) and form submissions, bcry
 | Emails appear only in logs | `SMTP_HOST` empty. Use Settings → Emails → Send test after setting it. |
 | Emails fail with auth errors | Microsoft 365: SMTP AUTH must be enabled for the mailbox; use an app password if MFA is on. |
 | Customers' links point to the wrong address | `PUBLIC_BASE_URL`. Existing links change automatically (they are built from the token). |
-| Upload fails with "file too large" | `MAX_FILE_MB` and the proxy's request-size limit. |
+| Upload fails with "file too large" (HTTP 413) | The proxy's `client_max_body_size` (nginx defaults to 1 MB), then `MAX_FILE_MB`. |
 | Admins are signed out unexpectedly | `JWT_SECRET` changed, or a password was changed in another browser. |
 
 ## 10. Development

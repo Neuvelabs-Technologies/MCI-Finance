@@ -27,9 +27,11 @@ import {
   COUNTRIES,
   EMIRATES,
   FILE_FIELDS,
+  BLOCKED_FILE_MESSAGE,
   LABELS,
   LEGAL_ID_TYPES,
   UAE,
+  isBlockedFileName,
   normalise,
   validate,
   type BuyerData,
@@ -41,9 +43,6 @@ import { cn } from '@/lib/utils';
 import type { FormLinkError, PublicFormResponse, SubmitErrorBody } from '@/types';
 import { LinkProblem, type LinkProblemKind } from './LinkProblem';
 import { PublicShell } from './PublicShell';
-
-const ACCEPT = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png';
-const ACCEPT_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 type SectionId = 'entities' | 'company' | 'tax' | 'ownership' | 'contact' | 'bank' | 'declaration';
 
@@ -191,7 +190,9 @@ export default function PublicForm() {
   const isUae = norm.country === UAE;
   const errCount = Object.keys(v.errors).length;
   const idl = ID_LABELS[norm.legalIdType] ?? ID_LABELS.TL!;
-  const maxMb = s.maxFileMb || 10;
+  // 0 = no size limit (the default)
+  const maxMb = s.maxFileMb > 0 ? s.maxFileMb : 0;
+  const fileHint = maxMb ? `Any document or photo · max ${maxMb} MB` : 'Any document or photo — PDF, Word, Excel, scans';
   const submittedBefore = !!cust.submittedAt;
 
   const set = <K extends keyof BuyerData>(k: K, val: BuyerData[K]) => {
@@ -260,11 +261,11 @@ export default function PublicForm() {
   const pickFile = (k: FileField, file: File | undefined) => {
     touch(k);
     if (!file) return;
-    if (!ACCEPT_TYPES.includes(file.type)) {
-      setServerErrors((e) => ({ ...e, [k]: 'Only PDF, JPG or PNG files are allowed.' }));
+    if (isBlockedFileName(file.name)) {
+      setServerErrors((e) => ({ ...e, [k]: BLOCKED_FILE_MESSAGE }));
       return;
     }
-    if (file.size > maxMb * 1024 * 1024) {
+    if (maxMb && file.size > maxMb * 1024 * 1024) {
       setServerErrors((e) => ({ ...e, [k]: `The file is ${fmtSize(file.size)}. Please upload a file under ${maxMb} MB.` }));
       return;
     }
@@ -308,7 +309,7 @@ export default function PublicForm() {
                 </p>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">PDF, JPG or PNG · max {maxMb} MB</p>
+              <p className="text-sm text-muted-foreground">{fileHint}</p>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -326,7 +327,6 @@ export default function PublicForm() {
               id={`file-${k}`}
               type="file"
               className="sr-only"
-              accept={ACCEPT}
               aria-label={label}
               onChange={(ev) => {
                 pickFile(k, ev.target.files?.[0]);
@@ -381,7 +381,7 @@ export default function PublicForm() {
       const body = ex instanceof ApiError ? (ex.data as SubmitErrorBody | null) : null;
       if (body?.errors) setServerErrors(body.errors);
       const tooLarge = ex instanceof ApiError && ex.status === 413;
-      setSubmitError(body?.error || (tooLarge ? `A file is too large (max ${maxMb} MB).` : 'Could not submit. Please check your connection and try again.'));
+      setSubmitError(body?.error || (tooLarge ? (maxMb ? `A file is too large (max ${maxMb} MB).` : 'The upload was too large for the server. Please try smaller files or contact us.') : 'Could not submit. Please check your connection and try again.'));
       requestAnimationFrame(() => document.querySelector('[role="alert"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
     } finally {
       setSubmitting(false);

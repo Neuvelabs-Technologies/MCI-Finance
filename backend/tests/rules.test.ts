@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UAE, ibanIsValid, normPeppol, normalise, validate } from '../src/utils/rules.js';
+import { UAE, ibanIsValid, isBlockedFileName, normPeppol, normalise, validate } from '../src/utils/rules.js';
 
 const ALL_FILES = { tradeLicence: true, trnCertificate: true, tinCertificate: true, signatoryIds: true, moa: true, ubo: true };
 const CTX = { sections: { ownership: true, bank: true }, hasEntities: true };
@@ -95,5 +95,14 @@ describe('normalisers', () => {
     expect(ibanIsValid('AE080331234567890123456')).toBe(false);
     expect(ibanIsValid('GB29NWBK60161331926819')).toBe(true);
     expect(ibanIsValid('AE07033123456789012345')).toBe(false); // UAE must be 23 characters
+  });
+});
+
+describe('isBlockedFileName', () => {
+  it('allows documents and photos of any kind', () => {
+    for (const n of ['report.docx', 'Licence.PDF', 'scan.heic', 'sheet.xlsx', 'docs.zip', 'photo.jpeg', 'no-extension']) expect(isBlockedFileName(n)).toBe(false);
+  });
+  it('blocks programs, scripts and web pages', () => {
+    for (const n of ['setup.exe', 'x.HTML', 'run.sh', 'macro.vbs', 'app.msi', 'evil.js']) expect(isBlockedFileName(n)).toBe(true);
   });
 });

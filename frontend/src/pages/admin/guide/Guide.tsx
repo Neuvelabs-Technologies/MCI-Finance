@@ -135,7 +135,7 @@ export default function Guide() {
     autoReminderDays: '7,2',
     ownership: true,
     bank: true,
-    maxFileMb: 10,
+    maxFileMb: 0,
     smtpConfigured,
     contactEmail: '',
   });

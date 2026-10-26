@@ -3,14 +3,7 @@ import path from 'node:path';
 import multer from 'multer';
 import { config } from '../config/env.js';
 import { ApiError } from '../utils/ApiError.js';
-import { FILE_FIELDS } from '../utils/rules.js';
-
-/** Document types customers may upload, with the extension we store them under. */
-export const DOC_TYPES: Record<string, string> = {
-  'application/pdf': '.pdf',
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-};
+import { BLOCKED_FILE_MESSAGE, FILE_FIELDS, isBlockedFileName } from '../utils/rules.js';
 
 export const LOGO_TYPES: Record<string, string> = {
   'image/png': '.png',
@@ -22,12 +15,19 @@ export const LOGO_TYPES: Record<string, string> = {
 export const tmpDir = path.join(config.uploadDir, 'tmp');
 fs.mkdirSync(tmpDir, { recursive: true });
 
-/** Customer documents on the public form: written to a temp folder, then moved by storage.service. */
+/** Per-file size cap in bytes, or undefined for no limit (MAX_FILE_MB=0, the default). */
+const maxFileBytes = config.maxFileMb > 0 ? config.maxFileMb * 1024 * 1024 : undefined;
+
+/**
+ * Customer documents on the public form: written to a temp folder, then moved by storage.service.
+ * Any document or image is accepted; only programs and scripts are refused (see rules.ts).
+ * The form link is checked BEFORE this runs (see public-form.routes), so a made-up link can't upload.
+ */
 export const formDocsUpload = multer({
   dest: tmpDir,
-  limits: { fileSize: config.maxFileMb * 1024 * 1024, files: 10, fields: 60 },
+  limits: { ...(maxFileBytes ? { fileSize: maxFileBytes } : {}), files: FILE_FIELDS.length, fields: 60 },
   fileFilter: (_req, file, cb) => {
-    if (!DOC_TYPES[file.mimetype]) return cb(new ApiError(400, 'Only PDF, JPG or PNG files are allowed.', file.fieldname));
+    if (isBlockedFileName(file.originalname)) return cb(new ApiError(400, BLOCKED_FILE_MESSAGE, file.fieldname));
     cb(null, true);
   },
 }).fields(FILE_FIELDS.map((name) => ({ name, maxCount: 1 })));

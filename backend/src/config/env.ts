@@ -30,7 +30,8 @@ export const config = {
   // Public URL customers open, e.g. https://einvoice.wearemci.com (no trailing slash)
   publicBaseUrl: env('PUBLIC_BASE_URL', 'http://localhost:5173').replace(/\/$/, ''),
   uploadDir: path.resolve(backendRoot, env('UPLOAD_DIR', 'uploads')),
-  maxFileMb: Number(env('MAX_FILE_MB', '10')),
+  // Per-file upload cap in MB; 0 (the default) means no limit.
+  maxFileMb: Number(env('MAX_FILE_MB', '0')),
   admin: {
     email: env('ADMIN_EMAIL', 'admin@example.com'),
     password: env('ADMIN_PASSWORD', 'ChangeMe123!'),
@@ -68,7 +69,7 @@ export function configProblems(): string[] {
     if (!/^https?:\/\//.test(config.publicBaseUrl)) problems.push('PUBLIC_BASE_URL must start with http:// or https://');
   }
   if (!Number.isFinite(config.port) || config.port <= 0) problems.push('PORT must be a number');
-  if (!Number.isFinite(config.maxFileMb) || config.maxFileMb <= 0) problems.push('MAX_FILE_MB must be a positive number');
+  if (!Number.isFinite(config.maxFileMb) || config.maxFileMb < 0) problems.push('MAX_FILE_MB must be 0 (no limit) or a positive number');
   return problems;
 }
 
