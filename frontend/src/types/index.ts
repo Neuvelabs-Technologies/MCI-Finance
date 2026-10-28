@@ -194,6 +194,7 @@ export interface SystemInfo {
   database: 'connected' | 'disconnected';
   inMemoryDatabase: boolean;
   smtpConfigured: boolean;
+  mailProvider: 'mailjet' | 'smtp' | 'none';
   publicBaseUrl: string;
   cookieSecure: boolean;
   maxFileMb: number;

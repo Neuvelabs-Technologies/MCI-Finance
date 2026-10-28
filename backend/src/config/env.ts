@@ -37,13 +37,21 @@ export const config = {
     password: env('ADMIN_PASSWORD', 'ChangeMe123!'),
     name: env('ADMIN_NAME', 'Finance Admin'),
   },
+  // Sender for every email, e.g. "MCI Middle East – Accounts <mci.admin@wearemci.com>".
+  // With Mailjet it must be a sender (or domain) verified in the Mailjet account.
+  mailFrom: env('MAIL_FROM', ''),
+  // Mailjet Send API (used when both keys are set; takes priority over SMTP)
+  mailjet: {
+    apiKey: env('MAILJET_API_KEY', ''),
+    secretKey: env('MAILJET_SECRET_KEY', ''),
+  },
+  // SMTP fallback, used only when the Mailjet keys are empty
   smtp: {
     host: env('SMTP_HOST', ''),
     port: Number(env('SMTP_PORT', '587')),
     secure: env('SMTP_SECURE', 'false') === 'true',
     user: env('SMTP_USER', ''),
     pass: env('SMTP_PASS', ''),
-    from: env('MAIL_FROM', ''),
   },
   // Addresses that receive "customer submitted" notifications (comma-separated)
   notifyEmails: env('NOTIFY_EMAILS', ''),
@@ -81,7 +89,11 @@ export function configWarnings(): string[] {
     if (!config.cookieSecure) warnings.push('COOKIE_SECURE is not true — admin sessions will work over plain HTTP');
     if (config.publicBaseUrl.startsWith('http://')) warnings.push('PUBLIC_BASE_URL uses http:// — customer links should use https://');
     if (config.admin.password === 'ChangeMe123!') warnings.push('ADMIN_PASSWORD is still the default (only used to create the first admin)');
-    if (!config.smtp.host) warnings.push('SMTP_HOST is empty — emails will only be written to the log');
+    const mailjet = !!(config.mailjet.apiKey && config.mailjet.secretKey);
+    if (!mailjet && (config.mailjet.apiKey || config.mailjet.secretKey))
+      warnings.push('Only one of MAILJET_API_KEY / MAILJET_SECRET_KEY is set — Mailjet needs both');
+    if (!mailjet && !config.smtp.host) warnings.push('No email provider set (MAILJET_API_KEY/MAILJET_SECRET_KEY or SMTP_HOST) — emails will only be written to the log');
+    if (mailjet && !config.mailFrom) warnings.push('MAIL_FROM is empty — Mailjet needs a verified sender address, so emails will fail');
     if (config.allowDemoData) warnings.push('ALLOW_DEMO_DATA is on — turn it off on the live server');
     if (config.quickLogin) warnings.push('QUICK_LOGIN is on — anyone who can open the site can sign in as an admin. Never use it on the live server');
   }

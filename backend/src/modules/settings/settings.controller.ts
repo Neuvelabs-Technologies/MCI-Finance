@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { config } from '../../config/env.js';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
 import { Settings, type EmailSettings } from '../../models/Settings.js';
-import { renderEmail, sendMail, smtpConfigured, templatesFor } from '../../services/mailer.service.js';
+import { renderEmail, sendMail, mailConfigured, templatesFor } from '../../services/mailer.service.js';
 import { saveLogo } from '../../services/storage.service.js';
 import { badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
@@ -14,7 +14,7 @@ const EMAIL_TEXT_FIELDS = ['inviteSubject', 'inviteBody', 'reminderSubject', 're
 
 export async function get(_req: Request, res: Response) {
   const s = await Settings.get();
-  res.json({ settings: s, smtpConfigured: smtpConfigured(), publicBaseUrl: config.publicBaseUrl });
+  res.json({ settings: s, smtpConfigured: mailConfigured(), publicBaseUrl: config.publicBaseUrl });
 }
 
 export async function update(req: Request, res: Response) {
@@ -65,11 +65,11 @@ export async function testEmail(req: Request, res: Response) {
   const to = str(req.body?.to) || currentAdmin(req).email;
   if (!isEmail(to)) throw badRequest('Enter a valid email');
   try {
-    await sendMail({ to, subject: 'Test email from the e-invoicing form', text: 'Your SMTP settings work.', html: '<p>Your SMTP settings work.</p>' });
+    await sendMail({ to, subject: 'Test email from the e-invoicing form', text: 'Your email settings work.', html: '<p>Your email settings work.</p>' });
   } catch (e) {
     throw badRequest(`Send failed: ${(e as Error).message}`);
   }
-  res.json({ ok: true, smtpConfigured: smtpConfigured() });
+  res.json({ ok: true, smtpConfigured: mailConfigured() });
 }
 
 /** Render the invite/reminder email with unsaved edits from the settings page. */

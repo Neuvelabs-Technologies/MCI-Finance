@@ -13,7 +13,7 @@ import { AuditLog } from '../../models/AuditLog.js';
 import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
 import { parseCustomerImport, type ImportError } from '../../services/excel.service.js';
-import { sendCustomerEmail, smtpConfigured } from '../../services/mailer.service.js';
+import { sendCustomerEmail, mailConfigured } from '../../services/mailer.service.js';
 import { escapeRegex } from '../../utils/http.js';
 import { issueToken } from '../../utils/token.js';
 
@@ -84,7 +84,7 @@ export async function getStats() {
   const status = Object.fromEntries(byStatus.map((x) => [x._id, x.n])) as Record<string, number>;
   const review = Object.fromEntries(byReview.map((x) => [x._id, x.n])) as Record<string, number>;
   const total = Object.values(status).reduce((a, b) => a + b, 0);
-  return { total, status, review, dueDate: s.dueDate, smtpConfigured: smtpConfigured(), entityCount };
+  return { total, status, review, dueDate: s.dueDate, smtpConfigured: mailConfigured(), entityCount };
 }
 
 /** Everything the Overview dashboard shows, in one request. */
@@ -192,7 +192,7 @@ export async function sendEmails(kind: EmailLogEntry['kind'], ids: (Types.Object
   const targets = allPending ? await pendingIds(kind) : ids;
   const s = await Settings.get();
   const results: SendResult[] = [];
-  // One at a time, so a large batch doesn't overwhelm the SMTP server.
+  // One at a time, so a large batch doesn't overwhelm the email provider.
   for (const id of targets) {
     const c = await Customer.findById(id);
     if (!c) continue;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0 — 2026-10-28
+
+### Changed
+- **Emails are sent through Mailjet** (MCI's email provider) using its Send API. Set `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` and `MAIL_FROM` (a sender verified in Mailjet) in the backend `.env`. SMTP still works as a fallback when the Mailjet keys are empty.
+- Mailjet's reason for a failed email (bad keys, unverified sender…) is shown in the customer's email log and on Settings → Emails → Send test.
+
 ## 1.2.0 — 2026-10-26
 
 ### Changed

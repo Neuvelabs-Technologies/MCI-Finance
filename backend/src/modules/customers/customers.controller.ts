@@ -5,7 +5,7 @@ import { Customer, type CustomerDoc, type StoredFile } from '../../models/Custom
 import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
 import { buildExport, buildImportTemplate } from '../../services/excel.service.js';
-import { smtpConfigured } from '../../services/mailer.service.js';
+import { mailConfigured } from '../../services/mailer.service.js';
 import { UNKNOWN_TYPE, VIEWABLE_TYPES, customerFilePath, deleteCustomerFiles } from '../../services/storage.service.js';
 import { badRequest, notFound } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
@@ -99,7 +99,7 @@ export async function send(req: Request, res: Response) {
   const results = await service.sendEmails(kind, ids, allPending);
   if (!results.length) throw badRequest('No customers selected');
   await audit(req, `email.${kind}`, { details: { count: results.length, failed: results.filter((r) => !r.ok).length } });
-  res.json({ results, smtpConfigured: smtpConfigured() });
+  res.json({ results, smtpConfigured: mailConfigured() });
 }
 
 /** For when finance sends the link manually (e.g. from Outlook) instead of via the system. */

@@ -349,7 +349,7 @@ function SetupChecklist({ setup }: { setup: OverviewData['setup'] }) {
     { done: setup.entities, label: 'Check MCI’s own entity details (TRN, TIN, licence)', to: '/admin/entities', action: 'Open entities' },
     { done: setup.dueDate, label: 'Set the due date customers see', to: '/admin/settings', action: 'Open settings' },
     { done: setup.contactEmail, label: 'Add the contact email customers reply to', to: '/admin/settings', action: 'Open settings' },
-    { done: setup.smtp, label: 'Connect the email server (SMTP) so invites are really sent', to: '/admin/settings?tab=emails', action: 'Email settings' },
+    { done: setup.smtp, label: 'Connect email sending (Mailjet) so invites are really sent', to: '/admin/settings?tab=emails', action: 'Email settings' },
     { done: setup.customers, label: 'Import the customer list', to: '/admin/customers', action: 'Customers' },
     { done: setup.invitesSent, label: 'Send the first invites', to: '/admin/customers?status=new', action: 'Not sent' },
   ];

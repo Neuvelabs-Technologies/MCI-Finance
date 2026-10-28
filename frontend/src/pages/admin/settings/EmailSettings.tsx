@@ -69,11 +69,11 @@ export function EmailSettings({ s, patch, smtpConfigured }: { s: AppSettings; pa
     <div className="flex flex-col gap-6">
       {smtpConfigured ? (
         <Notice tone="success" icon={CheckCircle2} title="Email sending is connected">
-          Invites, reminders and confirmations are sent from the configured mailbox.
+          Invites, reminders and confirmations are sent from the configured sender address.
         </Notice>
       ) : (
         <Notice tone="warning" icon={MailWarning} title="Email sending is not connected">
-          Until IT adds the SMTP settings to the backend’s <code className="font-mono">.env</code> file, emails are only written to the server log.
+          Until IT adds the Mailjet API key and secret key to the backend’s <code className="font-mono">.env</code> file, emails are only written to the server log.
         </Notice>
       )}
 

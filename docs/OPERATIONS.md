@@ -42,7 +42,7 @@ cp backend/.env.example backend/.env
 #   PUBLIC_BASE_URL   https://einvoice.wearemci.com   (the address customers open)
 #   COOKIE_SECURE     true
 #   ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME         (first admin; change the password after first sign-in)
-#   SMTP_* / MAIL_FROM / NOTIFY_EMAILS
+#   MAILJET_API_KEY / MAILJET_SECRET_KEY / MAIL_FROM / NOTIFY_EMAILS
 docker compose up -d --build
 docker compose ps            # all three should become "healthy"
 ```
@@ -62,14 +62,16 @@ Then sign in at `https://<host>/admin` and follow the **Before you go live** che
 | `UPLOAD_DIR` | `./uploads` | Set by docker-compose to `/data/uploads` (the `uploads` volume). |
 | `MAX_FILE_MB` | `0` | Per-document size limit in MB; `0` = no limit. Any document type is accepted; programs and scripts are always refused. If you set a limit, keep the proxy's `client_max_body_size` ≥ 6 × this. |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | | Used **only** when there are no admins yet. |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | | Empty `SMTP_HOST` = emails are logged, not sent. Microsoft 365: `smtp.office365.com`, 587, `SMTP_SECURE=false`, SMTP AUTH enabled on the mailbox. |
+| `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` | | Mailjet account keys (Account settings → API key management). When both are set, every email goes through Mailjet's Send API (HTTPS, no SMTP port needed). |
+| `MAIL_FROM` | | Sender, e.g. `"MCI Middle East – Accounts <mci.admin@wearemci.com>"`. With Mailjet the address or its domain **must be verified** in Mailjet, and the domain should have Mailjet's SPF/DKIM records so emails don't land in spam. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | | Fallback, used only when the Mailjet keys are empty. With neither set, emails are logged, not sent. |
 | `NOTIFY_EMAILS` | | Comma-separated; told about every submission. |
 | `LOG_LEVEL` | `info` (prod) | `debug`, `info`, `warn`, `error`. |
 | `ALLOW_DEMO_DATA` | off in production | `true` only on a **staging** server used for training. |
 | `QUICK_LOGIN` | off in production | One-click sign-in buttons on the login page (no password). Always on in development. `true` only on a **staging/demo** server — never the live one. |
 | `USE_MEMORY_DB`, `DEMO_DATA` | | Development only. |
 
-At startup the backend logs a `[config]` warning for anything risky (HTTP links, insecure cookies, default admin password, no SMTP, demo data allowed). Check `docker compose logs backend | grep config` after every change.
+At startup the backend logs a `[config]` warning for anything risky (HTTP links, insecure cookies, default admin password, no email provider, demo data allowed). Check `docker compose logs backend | grep config` after every change.
 
 ## 4. Health, logs and monitoring
 
@@ -145,8 +147,10 @@ Built in: rate-limited sign-in (10 attempts / 15 min) and form submissions, bcry
 |---|---|
 | Backend container restarts | `docker compose logs backend` — a `[config]` FATAL line names the setting; otherwise MongoDB isn't reachable. |
 | `/api/health` returns 503 | MongoDB is down or unreachable: `docker compose ps mongo`, disk space. |
-| Emails appear only in logs | `SMTP_HOST` empty. Use Settings → Emails → Send test after setting it. |
-| Emails fail with auth errors | Microsoft 365: SMTP AUTH must be enabled for the mailbox; use an app password if MFA is on. |
+| Emails appear only in logs | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` not set. Use Settings → Emails → Send test after setting them. |
+| "Mailjet rejected the API key or secret key" | Keys copied wrongly, swapped, or the key pair was revoked in Mailjet. |
+| Mailjet error about the sender / `From.Email` | The `MAIL_FROM` address (or its domain) isn't verified in the Mailjet account. |
+| Sent but customers don't receive it | Check Mailjet → Statistics/Message history (bounces, blocked). Add Mailjet's SPF and DKIM records to the sender domain. |
 | Customers' links point to the wrong address | `PUBLIC_BASE_URL`. Existing links change automatically (they are built from the token). |
 | Upload fails with "file too large" (HTTP 413) | The proxy's `client_max_body_size` (nginx defaults to 1 MB), then `MAX_FILE_MB`. |
 | Admins are signed out unexpectedly | `JWT_SECRET` changed, or a password was changed in another browser. |

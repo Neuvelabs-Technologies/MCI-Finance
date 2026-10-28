@@ -30,12 +30,12 @@ npm run dev:frontend           # terminal 2 — http://localhost:5173/admin
 
 Sign in with **Quick sign-in** on the login page (development only), or with `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `backend/.env`. The in-memory database starts with ~20 sample customers in every state (codes `DEMO-…`, never emailed). Set `DEMO_DATA=0` to start empty, or use `npm run dev:backend` with a real `MONGO_URI`.
 
-Without SMTP settings, emails are written to the backend log instead of being sent.
+Emails are sent through Mailjet (`MAILJET_API_KEY` / `MAILJET_SECRET_KEY`); without them, emails are written to the backend log instead of being sent.
 
 ## Production
 
 ```bash
-cp backend/.env.example backend/.env    # JWT_SECRET, PUBLIC_BASE_URL (https), COOKIE_SECURE=true, SMTP_*, ADMIN_*
+cp backend/.env.example backend/.env    # JWT_SECRET, PUBLIC_BASE_URL (https), COOKIE_SECURE=true, MAILJET_*, MAIL_FROM, ADMIN_*
 docker compose up -d --build            # frontend (nginx) on :8080 → backend :4000 → mongo
 ```
 

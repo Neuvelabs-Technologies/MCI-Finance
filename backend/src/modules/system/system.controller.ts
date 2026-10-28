@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { config } from '../../config/env.js';
 import { dbIsUp } from '../../config/db.js';
 import { clearDemoData, demoStatus, loadDemoData } from '../../services/demo.service.js';
-import { smtpConfigured } from '../../services/mailer.service.js';
+import { mailConfigured, mailProvider } from '../../services/mailer.service.js';
 import { audit } from '../../utils/audit.js';
 
 /** Facts about this server for the Settings → System tab and support queries. */
@@ -14,7 +14,8 @@ export async function info(_req: Request, res: Response) {
     uptimeSeconds: Math.round(process.uptime()),
     database: dbIsUp() ? 'connected' : 'disconnected',
     inMemoryDatabase: config.useMemoryDb,
-    smtpConfigured: smtpConfigured(),
+    smtpConfigured: mailConfigured(),
+    mailProvider: mailProvider(),
     publicBaseUrl: config.publicBaseUrl,
     cookieSecure: config.cookieSecure,
     maxFileMb: config.maxFileMb,

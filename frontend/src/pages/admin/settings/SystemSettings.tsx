@@ -62,7 +62,7 @@ export function SystemSettings() {
             ['Running for', uptime(info.uptimeSeconds)],
             ['Node.js', <span className="font-mono">{info.node}</span>],
             ['Database', info.inMemoryDatabase ? <ToneChip tone="warning">Temporary (in memory)</ToneChip> : yesNo(info.database === 'connected', 'Connected', 'Disconnected')],
-            ['Email sending', yesNo(info.smtpConfigured, 'Connected', 'Not connected')],
+            ['Email sending', yesNo(info.smtpConfigured, info.mailProvider === 'mailjet' ? 'Connected (Mailjet)' : 'Connected (SMTP)', 'Not connected')],
             ['Secure cookies (HTTPS)', yesNo(info.cookieSecure, 'On', 'Off')],
             ['Upload limit', info.maxFileMb > 0 ? `${info.maxFileMb} MB per file` : 'No limit (programs and scripts refused)'],
             ['Customer link address', <span className="font-mono text-sm break-all">{info.publicBaseUrl}</span>],

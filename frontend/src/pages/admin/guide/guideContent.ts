@@ -131,7 +131,7 @@ export function buildGuide(f: GuideFacts): Topic[] {
           items: [
             { title: 'Check “Our entities”', text: 'The TRN, TIN, PEPPOL ID, licence number and address must match MCI’s trade licence and FTA certificates exactly. Customers copy them into their supplier records.' },
             { title: 'Settings → Form', text: 'Set the due date, contact name and contact email, and decide whether you need the bank and ownership sections.' },
-            { title: 'Settings → Emails', text: `Read the invite and reminder text, send yourself a test email, and set automatic reminders. Email sending is currently **${f.smtpConfigured ? 'connected' : 'not connected — ask IT to add the SMTP settings'}**.` },
+            { title: 'Settings → Emails', text: `Read the invite and reminder text, send yourself a test email, and set automatic reminders. Email sending is currently **${f.smtpConfigured ? 'connected' : 'not connected — ask IT to add the Mailjet keys'}**.` },
             { title: 'Remove demo data', text: 'If sample customers (codes starting DEMO-) are loaded, remove them under Settings → System.' },
             { title: 'Change the starting password', text: 'Settings → Users. Add each finance team member with their own account.' },
             { title: 'Try it yourself', text: 'Add yourself as a customer, open the link with “Open as customer”, submit, then review and export it. Delete the test customer afterwards.' },
@@ -472,7 +472,7 @@ export function buildGuide(f: GuideFacts): Topic[] {
               'Delete a customer and their documents.',
               'On the customer’s page: ⋯ → Delete customer. For several at once: tick them in Customers, then Delete in the dark bar. This removes their details, every uploaded file (including earlier versions) and their link. It can’t be undone; Activity keeps one line per deletion.',
             ],
-            ['Emails only appear in the server log.', 'Email sending isn’t connected — IT needs to add the SMTP settings.'],
+            ['Emails only appear in the server log.', 'Email sending isn’t connected — IT needs to add the Mailjet keys.'],
           ],
         },
         {

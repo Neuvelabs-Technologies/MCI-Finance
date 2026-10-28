@@ -2,7 +2,7 @@
 // email every invited customer who hasn't submitted yet. Runs hourly; sends at most once per day per customer.
 import { Customer } from '../models/Customer.js';
 import { Settings } from '../models/Settings.js';
-import { sendCustomerEmail, smtpConfigured } from '../services/mailer.service.js';
+import { sendCustomerEmail, mailConfigured } from '../services/mailer.service.js';
 import { audit } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 
@@ -11,7 +11,7 @@ const dubaiDay = (d: Date | string): string =>
 
 export async function runReminders(): Promise<{ skipped?: boolean; sent?: number; daysLeft?: number }> {
   const s = await Settings.get();
-  if (!s.dueDate || !s.autoReminderDays?.trim() || !smtpConfigured()) return { skipped: true };
+  if (!s.dueDate || !s.autoReminderDays?.trim() || !mailConfigured()) return { skipped: true };
   const days = s.autoReminderDays
     .split(',')
     .map((x) => Number(x.trim()))

@@ -4,7 +4,7 @@ import { config } from '../../config/env.js';
 import { clearSession, currentAdmin, setSession } from '../../middlewares/auth.middleware.js';
 import { Admin } from '../../models/Admin.js';
 import { Customer } from '../../models/Customer.js';
-import { smtpConfigured } from '../../services/mailer.service.js';
+import { mailConfigured } from '../../services/mailer.service.js';
 import { ApiError, badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { str } from '../../utils/http.js';
@@ -29,7 +29,7 @@ export function logout(_req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
   res.json({
     admin: currentAdmin(req).toSafe(),
-    smtpConfigured: smtpConfigured(),
+    smtpConfigured: mailConfigured(),
     publicBaseUrl: config.publicBaseUrl,
     version: config.version,
     demo: { count: await Customer.countDocuments({ demo: true }), allowed: config.allowDemoData },
