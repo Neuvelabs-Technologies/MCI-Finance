@@ -1,6 +1,6 @@
 {
   "name": "mci-einvoice-backend",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "private": true,
   "description": "UAE e-invoicing customer data collection — API (Express + MongoDB)",
   "type": "module",
@@ -16,6 +16,8 @@
     "demo:clear": "tsx src/seeds/demo.ts clear",
     "demo:load:prod": "node dist/seeds/demo.js load",
     "demo:clear:prod": "node dist/seeds/demo.js clear",
+    "mailjet:webhook": "tsx src/scripts/mailjet-webhook.ts",
+    "mailjet:webhook:prod": "node dist/scripts/mailjet-webhook.js",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
     "test": "vitest run",

@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { Request, Response } from 'express';
 import { AuditLog } from '../../models/AuditLog.js';
 import { Customer, type CustomerDoc, type StoredFile } from '../../models/Customer.js';
+import { EmailMessage } from '../../models/EmailMessage.js';
 import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
 import { buildExport, buildImportTemplate } from '../../services/excel.service.js';
@@ -111,7 +112,10 @@ export async function markSent(req: Request, res: Response) {
 
 export async function getOne(req: Request, res: Response) {
   const c = await findOr404(req.params.id);
-  const logs = await AuditLog.find({ customer: c._id }).sort({ at: -1 }).limit(100);
+  const [logs, emails] = await Promise.all([
+    AuditLog.find({ customer: c._id }).sort({ at: -1 }).limit(100),
+    EmailMessage.find({ customer: c._id }).sort({ at: -1 }).limit(50),
+  ]);
   const files: Partial<Record<string, StoredFile>> = {};
   for (const f of FILE_FIELDS) if (c.files?.[f]?.storedName) files[f] = c.files[f];
   res.json({
@@ -128,6 +132,7 @@ export async function getOne(req: Request, res: Response) {
       createdAt: c.createdAt,
     },
     logs,
+    emails,
   });
 }
 
@@ -161,6 +166,7 @@ export async function remove(req: Request, res: Response) {
   const c = await Customer.findByIdAndDelete(req.params.id);
   if (!c) throw notFound();
   deleteCustomerFiles(c._id);
+  await EmailMessage.deleteMany({ customer: c._id });
   await audit(req, 'customer.deleted', { details: { code: c.code, name: c.name } });
   res.json({ ok: true });
 }
@@ -174,6 +180,7 @@ export async function removeMany(req: Request, res: Response) {
     const c = await Customer.findByIdAndDelete(id);
     if (!c) continue;
     deleteCustomerFiles(c._id);
+    await EmailMessage.deleteMany({ customer: c._id });
     await audit(req, 'customer.deleted', { details: { code: c.code, name: c.name } });
     deleted++;
   }

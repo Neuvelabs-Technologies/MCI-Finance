@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { config } from '../../config/env.js';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
 import { Settings, type EmailSettings } from '../../models/Settings.js';
-import { renderEmail, sendMail, mailConfigured, templatesFor } from '../../services/mailer.service.js';
+import { deliver, renderEmail, mailConfigured, templatesFor } from '../../services/mailer.service.js';
 import { saveLogo } from '../../services/storage.service.js';
 import { badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
@@ -65,7 +65,7 @@ export async function testEmail(req: Request, res: Response) {
   const to = str(req.body?.to) || currentAdmin(req).email;
   if (!isEmail(to)) throw badRequest('Enter a valid email');
   try {
-    await sendMail({ to, subject: 'Test email from the e-invoicing form', text: 'Your email settings work.', html: '<p>Your email settings work.</p>' });
+    await deliver({ kind: 'test', to, subject: 'Test email from the e-invoicing form', text: 'Your email settings work.', html: '<p>Your email settings work.</p>' });
   } catch (e) {
     throw badRequest(`Send failed: ${(e as Error).message}`);
   }

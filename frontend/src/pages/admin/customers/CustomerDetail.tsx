@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Banknote,
@@ -26,10 +26,11 @@ import { ApiError, errorMessage } from '@/api/client';
 import { customersApi } from '@/api/customers.api';
 import { entitiesApi } from '@/api/entities.api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { EmailDetailDialog } from '@/components/common/EmailDetailDialog';
 import { FormField, InfoGrid, Notice } from '@/components/common/Form';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
-import { ReviewChip, StatusChip } from '@/components/common/StatusChip';
+import { MailStatusChip, ReviewChip, StatusChip } from '@/components/common/StatusChip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,8 +40,9 @@ import { actorLabel, describeLog } from '@/lib/activity';
 import { copyText } from '@/lib/browser';
 import { fmtDate, fmtDateTime, fmtSize, relativeTime } from '@/lib/format';
 import { FILE_FIELDS, LABELS, LEGAL_ID_TYPES, UAE, type FileField } from '@/lib/rules';
+import { MAIL_KIND_LABEL } from '@/lib/emails';
 import { cn } from '@/lib/utils';
-import type { AuditLog, CustomerDetail as Customer, EmailKind, Entity, ReviewStatus } from '@/types';
+import type { AuditLog, CustomerDetail as Customer, EmailKind, EmailMessage, Entity, ReviewStatus } from '@/types';
 import { CustomerModal } from './CustomerModal';
 
 /** PDFs and images open in the browser; everything else is downloaded (the server enforces this too). */
@@ -53,7 +55,7 @@ const mono = (v: string | undefined) => (v ? <span className="font-mono text-[0.
 export default function CustomerDetail() {
   const { id = '' } = useParams();
   const nav = useNavigate();
-  const [d, setD] = useState<{ customer: Customer; logs: AuditLog[] } | null>(null);
+  const [d, setD] = useState<{ customer: Customer; logs: AuditLog[]; emails: EmailMessage[] } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [dialog, setDialog] = useState<'edit' | 'delete' | 'regen' | EmailKind | null>(null);
@@ -390,6 +392,7 @@ export default function CustomerDetail() {
             </CardContent>
           </Card>
 
+          <EmailsCard customerId={c.id} emails={d.emails} />
           <History c={c} logs={d.logs} />
         </div>
       </div>
@@ -585,6 +588,54 @@ function Documents({ c }: { c: Customer }) {
           </details>
         ) : null}
       </CardContent>
+    </Card>
+  );
+}
+
+/** Every email sent about this customer, with whether it arrived. */
+function EmailsCard({ customerId, emails }: { customerId: string; emails: EmailMessage[] }) {
+  const [open, setOpen] = useState<EmailMessage | null>(null);
+  const shown = emails.slice(0, 8);
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="text-base">Emails</CardTitle>
+        <CardDescription>Whether each email reached the customer. Click one for details.</CardDescription>
+        {emails.length > shown.length ? (
+          <CardAction>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to={`/admin/emails?customer=${customerId}`}>See all {emails.length}</Link>
+            </Button>
+          </CardAction>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {shown.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No emails sent yet.</p>
+        ) : (
+          <ul className="-mx-2 flex flex-col">
+            {shown.map((e) => (
+              <li key={e._id}>
+                <button
+                  type="button"
+                  onClick={() => setOpen(e)}
+                  className="flex w-full items-start justify-between gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">
+                      {MAIL_KIND_LABEL[e.kind]} · {e.to}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">{fmtDateTime(e.at)}</span>
+                    {e.detail && !['delivered', 'opened'].includes(e.status) ? <span className="mt-0.5 line-clamp-2 block text-xs text-danger">{e.detail}</span> : null}
+                  </span>
+                  <MailStatusChip status={e.status} className="shrink-0" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      <EmailDetailDialog email={open} onOpenChange={(o) => !o && setOpen(null)} />
     </Card>
   );
 }

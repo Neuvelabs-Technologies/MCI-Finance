@@ -40,7 +40,7 @@ describe('Mailjet', () => {
   it('sends one message to every recipient through the Send API', async () => {
     const fetch = reply(200, { Messages: [{ Status: 'success' }] });
     vi.stubGlobal('fetch', fetch);
-    await sendMail(mail);
+    expect(await sendMail(mail)).toEqual({ provider: 'mailjet', recipients: [] });
 
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://api.mailjet.com/v3.1/send');
@@ -54,6 +54,7 @@ describe('Mailjet', () => {
           Subject: 'Hi',
           TextPart: 'Hello',
           HTMLPart: '<p>Hello</p>',
+          TrackClicks: 'disabled',
         },
       ],
     });

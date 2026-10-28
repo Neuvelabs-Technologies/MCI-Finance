@@ -24,6 +24,8 @@ export interface EmailLogEntry {
   to: string[];
   ok: boolean;
   error?: string;
+  /** Links to the EmailMessage records, whose delivery status can later mark this entry as failed. */
+  batchId?: string;
 }
 
 /** Buyer data as stored: same as the form, but entity ids are ObjectIds and the expiry is a Date. */
@@ -140,7 +142,7 @@ const CustomerSchema = new Schema<ICustomer>(
     fileHistory: [
       { field: String, originalName: String, storedName: String, size: Number, mime: String, uploadedAt: Date },
     ],
-    emailLog: [{ at: Date, kind: String, to: [String], ok: Boolean, error: String }],
+    emailLog: [{ at: Date, kind: String, to: [String], ok: Boolean, error: String, batchId: String }],
     demo: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }

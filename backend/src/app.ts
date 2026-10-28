@@ -10,10 +10,12 @@ import adminsRoutes from './modules/admins/admins.routes.js';
 import auditRoutes from './modules/audit/audit.routes.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import customersRoutes from './modules/customers/customers.routes.js';
+import emailsRoutes from './modules/emails/emails.routes.js';
 import entitiesRoutes from './modules/entities/entities.routes.js';
 import publicFormRoutes from './modules/public-form/public-form.routes.js';
 import settingsRoutes from './modules/settings/settings.routes.js';
 import systemRoutes from './modules/system/system.routes.js';
+import webhooksRoutes from './modules/webhooks/webhooks.routes.js';
 import { logger } from './utils/logger.js';
 
 /** The JSON API. The React frontend is built and served separately (see frontend/). */
@@ -55,6 +57,9 @@ export function createApp() {
       },
     })
   );
+  // Delivery events from the email provider. Mailjet batches events, so allow larger bodies than the API.
+  app.use('/api/webhooks', express.json({ limit: '10mb' }), webhooksRoutes);
+
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
@@ -70,6 +75,7 @@ export function createApp() {
   // Admin panel
   app.use('/api/auth', authRoutes);
   app.use('/api/customers', customersRoutes);
+  app.use('/api/emails', emailsRoutes);
   app.use('/api/entities', entitiesRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/admins', adminsRoutes);

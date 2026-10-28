@@ -6,6 +6,7 @@ import { AdminContext } from '@/context/AdminContext';
 import { AdminLayout } from '@/layout/AdminLayout';
 import type { MeResponse } from '@/types';
 import Activity from './Activity';
+import Emails from './Emails';
 import Entities from './Entities';
 import Guide from './guide/Guide';
 import Login from './Login';
@@ -55,6 +56,7 @@ export default function AdminApp() {
           <Route index element={<Overview />} />
           <Route path="customers" element={<CustomersList />} />
           <Route path="customers/:id" element={<CustomerDetail />} />
+          <Route path="emails" element={<Emails />} />
           <Route path="entities" element={<Entities />} />
           <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<SettingsPage />} />

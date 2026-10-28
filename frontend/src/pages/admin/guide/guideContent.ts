@@ -385,7 +385,41 @@ export function buildGuide(f: GuideFacts): Topic[] {
           type: 'p',
           text: 'Every meaningful event is recorded with who did it and when: forms opened and submitted (with the fields that changed), emails, reviews, imports, exports, entity and settings changes, sign-ins and user changes.',
         },
-        { type: 'list', items: ['Activity shows everything, with search and a filter by type.', 'Each customer’s page has its own History, including every email and whether it was delivered to the mail server.'] },
+        { type: 'list', items: ['Activity shows everything, with search and a filter by type.', 'Each customer’s page has its own History, and an Emails card showing whether each email arrived.'] },
+      ],
+    },
+    {
+      id: 'emails',
+      group: 'reference',
+      title: 'Emails and delivery status',
+      summary: 'Did the email arrive? Delivered, opened, bounced and blocked explained.',
+      link: { to: '/admin/emails', label: 'Open Emails' },
+      blocks: [
+        {
+          type: 'p',
+          text: 'The **Emails** page lists every email the system sends: invites, reminders, confirmations to customers, submission alerts to finance and test emails. Each shows its delivery status, reported by Mailjet. Click an email for the full story.',
+        },
+        {
+          type: 'table',
+          head: ['Status', 'Meaning', 'What to do'],
+          rows: [
+            ['Waiting', 'Mailjet has it and is sending it.', 'Nothing. It normally changes within a minute.'],
+            ['Delivered', 'The customer’s mail server accepted it.', 'If they say they didn’t get it, ask them to check junk mail.'],
+            ['Opened', 'The customer opened it.', 'Nothing. Some mail apps hide opens, so a “Delivered” email may have been read too.'],
+            ['Bounced', 'Their mail server refused it: the address doesn’t exist, or the mailbox is full.', 'Check the address with the customer, correct it on their page, and send again.'],
+            ['Blocked', 'Mailjet didn’t send it, usually because the address bounced before or reported spam.', 'Get another address from the customer.'],
+            ['Marked as spam', 'The customer reported it as spam.', 'Contact them by phone and ask them to mark it “not spam”.'],
+            ['Failed', 'Mailjet rejected it when it was sent.', 'The reason is shown. Usually a setup problem for IT.'],
+          ],
+        },
+        {
+          type: 'list',
+          items: [
+            'A bounced or blocked invite or reminder also counts as a **failed email** on the Customers list and the Overview.',
+            'Use the tiles at the top to see only problems, and **Export** for an Excel list.',
+            'Statuses arrive by themselves. If they seem stuck, press **Refresh from Mailjet**.',
+          ],
+        },
       ],
     },
     {
@@ -464,7 +498,7 @@ export function buildGuide(f: GuideFacts): Topic[] {
           rows: [
             ['“The link says it has expired.”', 'Send them a reminder — expired links are renewed automatically. Or generate a new link on their page.'],
             ['“The link is not valid.”', 'They probably copied it partly, or a newer link replaced it. Copy the current link from their page and send it again.'],
-            ['They didn’t receive the email.', 'Check History on their page: “sent” means the mail server accepted it — ask them to check junk mail. “FAILED” shows the reason.'],
+            ['They didn’t receive the email.', 'Check the Emails card on their page. **Delivered** means their mail server accepted it, so ask them to check junk mail. **Bounced** or **Blocked** shows the reason; usually the address is wrong.'],
             ['The link went to the wrong person.', 'Generate a new link on their page. The old one stops working at once.'],
             ['They need to change something after submitting.', 'They open the same link, change it, and submit again. You’ll see what changed in History.'],
             ['A customer appears twice.', 'Imports match on code. Delete the duplicate and keep codes consistent with the ERP.'],

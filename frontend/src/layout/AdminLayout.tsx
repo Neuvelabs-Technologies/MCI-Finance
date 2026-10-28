@@ -8,6 +8,7 @@ import {
   FlaskConical,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   Moon,
   Settings,
@@ -33,6 +34,7 @@ interface NavItem {
 const MAIN: NavItem[] = [
   { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/admin/customers', label: 'Customers', icon: Users },
+  { to: '/admin/emails', label: 'Emails', icon: Mail },
   { to: '/admin/entities', label: 'Our entities', icon: Building2 },
   { to: '/admin/activity', label: 'Activity', icon: Activity },
   { to: '/admin/settings', label: 'Settings', icon: Settings },

@@ -16,6 +16,8 @@ export async function info(_req: Request, res: Response) {
     inMemoryDatabase: config.useMemoryDb,
     smtpConfigured: mailConfigured(),
     mailProvider: mailProvider(),
+    // Mailjet reports delivery events to /api/webhooks/mailjet (set up with: npm run mailjet:webhook)
+    deliveryWebhook: mailProvider() === 'mailjet' && !!config.mailjet.webhookSecret,
     publicBaseUrl: config.publicBaseUrl,
     cookieSecure: config.cookieSecure,
     maxFileMb: config.maxFileMb,

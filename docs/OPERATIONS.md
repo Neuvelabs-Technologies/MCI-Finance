@@ -64,6 +64,7 @@ Then sign in at `https://<host>/admin` and follow the **Before you go live** che
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | | Used **only** when there are no admins yet. |
 | `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` | | Mailjet account keys (Account settings → API key management). When both are set, every email goes through Mailjet's Send API (HTTPS, no SMTP port needed). |
 | `MAIL_FROM` | | Sender, e.g. `"MCI Middle East – Accounts <mci.admin@wearemci.com>"`. With Mailjet the address or its domain **must be verified** in Mailjet, and the domain should have Mailjet's SPF/DKIM records so emails don't land in spam. |
+| `MAILJET_WEBHOOK_SECRET` | | Long random string (`openssl rand -hex 24`). Mailjet uses it as the password when it reports delivery events (delivered, opened, bounced, blocked, spam) to `/api/webhooks/mailjet`. Empty = webhook off; statuses then only update with **Refresh from Mailjet** on the Emails page. See *Email delivery tracking* below. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | | Fallback, used only when the Mailjet keys are empty. With neither set, emails are logged, not sent. |
 | `NOTIFY_EMAILS` | | Comma-separated; told about every submission. |
 | `LOG_LEVEL` | `info` (prod) | `debug`, `info`, `warn`, `error`. |
@@ -72,6 +73,18 @@ Then sign in at `https://<host>/admin` and follow the **Before you go live** che
 | `USE_MEMORY_DB`, `DEMO_DATA` | | Development only. |
 
 At startup the backend logs a `[config]` warning for anything risky (HTTP links, insecure cookies, default admin password, no email provider, demo data allowed). Check `docker compose logs backend | grep config` after every change.
+
+### Email delivery tracking (Mailjet)
+
+Every email is recorded on the admin **Emails** page (one row per recipient). Mailjet tells the server what happened to each one through a webhook. To set it up on a server:
+
+1. Put `MAILJET_WEBHOOK_SECRET=<long random string>` in the backend `.env` and redeploy (the container reads `.env` when it is created).
+2. Register the webhook with Mailjet, once per server: `docker exec <backend-container> npm run mailjet:webhook:prod`. It points Mailjet's `sent`, `open`, `click`, `bounce`, `blocked`, `spam` and `unsub` events at `PUBLIC_BASE_URL/api/webhooks/mailjet`, with the secret as basic-auth password. `… mailjet:webhook:prod -- status` shows the current setting.
+3. Settings → System shows **Delivery tracking: Live (Mailjet webhook)**.
+
+The webhook belongs to the **Mailjet API key**, not the server. If UAT and live used the same key, whichever registered last would get the events (the other server's emails would stay "Waiting" until someone presses **Refresh from Mailjet**). Give each server its own Mailjet API key (Mailjet → Account settings → API key management → create a sub-account key).
+
+Click tracking is turned off on every email, so customers' private form links are never rewritten through Mailjet's tracking domain. "Opened" relies on Mailjet's tracking pixel and is a hint only — many mail apps block it.
 
 ## 4. Health, logs and monitoring
 
@@ -150,7 +163,8 @@ Built in: rate-limited sign-in (10 attempts / 15 min) and form submissions, bcry
 | Emails appear only in logs | `MAILJET_API_KEY` / `MAILJET_SECRET_KEY` not set. Use Settings → Emails → Send test after setting them. |
 | "Mailjet rejected the API key or secret key" | Keys copied wrongly, swapped, or the key pair was revoked in Mailjet. |
 | Mailjet error about the sender / `From.Email` | The `MAIL_FROM` address (or its domain) isn't verified in the Mailjet account. |
-| Sent but customers don't receive it | Check Mailjet → Statistics/Message history (bounces, blocked). Add Mailjet's SPF and DKIM records to the sender domain. |
+| Sent but customers don't receive it | Open the email on the **Emails** page: Bounced/Blocked show Mailjet's reason. "Delivered" means their server accepted it — ask them to check junk mail. Add Mailjet's SPF and DKIM records to the sender domain. |
+| Emails stay "Waiting" | The webhook isn't set up or points at another server (`npm run mailjet:webhook:prod -- status`). **Refresh from Mailjet** on the Emails page updates them meanwhile. |
 | Customers' links point to the wrong address | `PUBLIC_BASE_URL`. Existing links change automatically (they are built from the token). |
 | Upload fails with "file too large" (HTTP 413) | The proxy's `client_max_body_size` (nginx defaults to 1 MB), then `MAX_FILE_MB`. |
 | Admins are signed out unexpectedly | `JWT_SECRET` changed, or a password was changed in another browser. |

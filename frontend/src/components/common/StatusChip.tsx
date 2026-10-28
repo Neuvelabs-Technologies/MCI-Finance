@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Badge, type BadgeVariant } from '@/components/ui/badge';
-import type { CustomerStatus, ReviewStatus } from '@/types';
+import { MAIL_STATUS_HELP, MAIL_STATUS_LABEL, MAIL_STATUS_TONE } from '@/lib/emails';
+import type { CustomerStatus, MailStatus, ReviewStatus } from '@/types';
 
 export const STATUS_LABEL: Record<CustomerStatus, string> = { new: 'Not sent', invited: 'Sent', opened: 'Opened', submitted: 'Submitted' };
 export const REVIEW_LABEL: Record<ReviewStatus, string> = { pending: 'To review', verified: 'Verified', needs_correction: 'Needs correction' };
@@ -34,6 +35,16 @@ export function ToneChip({ tone, children, className }: { tone: BadgeVariant; ch
     <Badge variant={tone} className={className}>
       <Dot />
       {children}
+    </Badge>
+  );
+}
+
+/** Delivery status of one email; hover for what it means. */
+export function MailStatusChip({ status, className }: { status: MailStatus; className?: string }) {
+  return (
+    <Badge variant={MAIL_STATUS_TONE[status]} className={className} title={MAIL_STATUS_HELP[status]}>
+      <Dot />
+      {MAIL_STATUS_LABEL[status]}
     </Badge>
   );
 }

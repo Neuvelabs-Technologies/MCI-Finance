@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { parse } from 'csv-parse/sync';
 import type { CustomerDoc, CustomerStatus, ReviewStatus } from '../models/Customer.js';
+import type { EmailMessageDoc, MailKind, MailStatus } from '../models/EmailMessage.js';
 import type { EntityDoc } from '../models/Entity.js';
 import { FILE_FIELDS, LABELS, LEGAL_ID_TYPES } from '../utils/rules.js';
 import { isEmail } from '../utils/rules.js';
@@ -24,6 +25,55 @@ function styleHeader(ws: ExcelJS.Worksheet): void {
 
 type Cell = string | number | Date | null | undefined;
 type Column = [header: string, value: (c: CustomerDoc) => Cell, width: number];
+
+// ---------------- emails export ----------------
+
+export const MAIL_STATUS_LABEL: Record<MailStatus, string> = {
+  queued: 'Waiting',
+  delivered: 'Delivered',
+  opened: 'Opened',
+  clicked: 'Clicked',
+  unsubscribed: 'Unsubscribed',
+  spam: 'Marked as spam',
+  bounced: 'Bounced',
+  blocked: 'Blocked',
+  failed: 'Failed',
+  accepted: 'Sent (no tracking)',
+  not_sent: 'Not sent (log only)',
+};
+export const MAIL_KIND_LABEL: Record<MailKind, string> = {
+  invite: 'Invite',
+  reminder: 'Reminder',
+  confirmation: 'Confirmation',
+  notification: 'Submission alert',
+  test: 'Test',
+};
+
+type EmailRow = EmailMessageDoc & { customer?: { code?: string; name?: string } | null };
+
+export async function buildEmailExport(emails: EmailRow[]): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'MCI e-Invoicing';
+  const ws = wb.addWorksheet('Emails');
+  ws.columns = [
+    { header: 'Sent at', width: 20 },
+    { header: 'To', width: 34 },
+    { header: 'Customer code', width: 16 },
+    { header: 'Customer', width: 30 },
+    { header: 'Type', width: 16 },
+    { header: 'Subject', width: 50 },
+    { header: 'Status', width: 20 },
+    { header: 'Status updated', width: 20 },
+    { header: 'Details', width: 60 },
+  ];
+  for (const e of emails) {
+    const c = e.customer && typeof e.customer === 'object' ? e.customer : null;
+    ws.addRow([dt(e.at), e.to, c?.code ?? '', c?.name ?? '', MAIL_KIND_LABEL[e.kind], e.subject, MAIL_STATUS_LABEL[e.status], dt(e.statusAt), e.detail ?? '']);
+  }
+  for (const col of [1, 8]) ws.getColumn(col).numFmt = 'dd/mm/yyyy hh:mm';
+  styleHeader(ws);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
 
 // ---------------- export ----------------
 

@@ -9,12 +9,14 @@ import type { Types } from 'mongoose';
 import { config } from '../config/env.js';
 import { Admin } from '../models/Admin.js';
 import { AuditLog, type IAuditLog } from '../models/AuditLog.js';
-import { Customer, type EmailLogEntry, type FileHistoryEntry, type ICustomer, type StoredFile } from '../models/Customer.js';
+import { Customer, type CustomerDoc, type EmailLogEntry, type FileHistoryEntry, type ICustomer, type StoredFile } from '../models/Customer.js';
+import { EmailMessage, type IEmailMessage } from '../models/EmailMessage.js';
 import { Entity } from '../models/Entity.js';
-import { Settings } from '../models/Settings.js';
+import { Settings, type ISettings } from '../models/Settings.js';
 import { ApiError } from '../utils/ApiError.js';
 import type { BuyerData, FileField } from '../utils/rules.js';
 import { UAE, requiredKeys, isFileField } from '../utils/rules.js';
+import { renderEmail, templatesFor } from './mailer.service.js';
 import { deleteCustomerFiles, writeCustomerFile } from './storage.service.js';
 
 export const DEMO_CODE_PREFIX = 'DEMO-';
@@ -167,6 +169,7 @@ export async function clearDemoData(): Promise<{ customers: number; entities: nu
   const ids = customers.map((c) => c._id);
   for (const id of ids) deleteCustomerFiles(id);
   const logs = await AuditLog.deleteMany({ $or: [{ customer: { $in: ids } }, { 'details.demo': true }] });
+  await EmailMessage.deleteMany({ $or: [{ demo: true }, { customer: { $in: ids } }] });
   await Customer.deleteMany({ _id: { $in: ids } });
 
   // A real customer may have ticked the demo entity on the form: hide it instead of deleting it then.
@@ -217,6 +220,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
   const entityIds = [realEntity?._id, demoEntity._id].filter(Boolean) as Types.ObjectId[];
 
   const logs: Partial<IAuditLog>[] = [];
+  const mails: Partial<IEmailMessage>[] = [];
   const log = (at: number, action: string, customer: Types.ObjectId | undefined, actor: string, details: Record<string, unknown> = {}) =>
     logs.push({ at: new Date(at), action, customer, actor, details: { ...details, demo: true } });
 
@@ -319,6 +323,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
       }
     }
 
+    mails.push(...demoMails(c, settings, opens));
     await c.save();
     // Back-date the record so lists sort and read naturally
     await Customer.updateOne({ _id: c._id }, { $set: { createdAt: new Date(created), updatedAt: new Date(c.submittedAt ?? c.openedAt ?? c.invitedAt ?? created) } }, { timestamps: false });
@@ -327,7 +332,27 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
 
   log(now - 25 * DAY, 'entity.created', undefined, adminEmail, { name: demoEntity.name });
   await AuditLog.insertMany(dedupeImports(logs));
+  await EmailMessage.insertMany(mails);
   return { customers: SAMPLES.length, entities: 1 };
+}
+
+/** Delivery records for a demo customer's emails: delivered, opened (if they opened the form) or bounced (if it failed). */
+function demoMails(c: CustomerDoc, settings: ISettings, opened: boolean): Partial<IEmailMessage>[] {
+  const out: Partial<IEmailMessage>[] = [];
+  for (const entry of c.emailLog) {
+    entry.batchId = crypto.randomUUID();
+    const { subject } = renderEmail({ ...templatesFor(entry.kind, settings.email), settings, customer: c });
+    const at = new Date(entry.at);
+    const later = (h: number) => new Date(at.getTime() + h * 36e5);
+    for (const to of entry.to) {
+      const status = !entry.ok ? 'bounced' : opened && entry.kind === 'invite' ? 'opened' : 'delivered';
+      const detail = entry.ok ? undefined : `Hard bounce: the address does not exist or refuses mail — ${entry.error ?? 'user unknown'} (recipient)`;
+      const events = [{ at: later(0.01), type: entry.ok ? 'sent' : 'bounce', detail }];
+      if (status === 'opened') events.push({ at: later(5), type: 'open', detail: undefined });
+      out.push({ at, kind: entry.kind, customer: c._id, to, subject, provider: 'mailjet', status, statusAt: events.at(-1)?.at, detail, batchId: entry.batchId, events, demo: true });
+    }
+  }
+  return out;
 }
 
 /** One "imported" entry per batch looks more like reality than one per customer. */

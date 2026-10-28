@@ -2,7 +2,8 @@ import { config } from '../../config/env.js';
 import { Customer, type CustomerDoc } from '../../models/Customer.js';
 import type { EntityDoc } from '../../models/Entity.js';
 import type { ISettings } from '../../models/Settings.js';
-import { emailShell, esc, sendMail } from '../../services/mailer.service.js';
+import { deliver, emailShell, esc } from '../../services/mailer.service.js';
+import { logger } from '../../utils/logger.js';
 import { FILE_FIELDS, type BuyerData, type FileField } from '../../utils/rules.js';
 
 /** Settings the public form is allowed to see. */
@@ -100,17 +101,22 @@ export async function notifySubmission(c: CustomerDoc, s: ISettings, d: BuyerDat
   if (s.email?.sendConfirmation) {
     const to = [...new Set([d.email, ...(c.emails ?? [])].filter(Boolean))];
     if (to.length) {
-      await sendMail({
+      // A failed confirmation (recorded on the Emails page) must not stop the finance notification
+      await deliver({
+        kind: 'confirmation',
+        customer: c._id,
         to,
         replyTo: s.contactEmail || undefined,
         subject: `${s.orgName}: e-invoicing details received – ${c.code}`,
         text: `Thank you. We have received your company's UAE e-invoicing details.\n\n${plainRows}\n\nIf anything changes, you can open the same link again and resubmit.\n\nRegards,\n${s.contactName}\n${s.orgName}`,
         html: wrap(`<p>Thank you. We have received your company's UAE e-invoicing details.</p>${table}<p>If anything changes, you can open the same link again and resubmit.</p><p>Regards,<br>${esc(s.contactName)}<br>${esc(s.orgName)}</p>`),
-      });
+      }).catch((err: unknown) => logger.warn({ err, code: c.code }, '[notify] confirmation email failed'));
     }
   }
   if (config.notifyEmails) {
-    await sendMail({
+    await deliver({
+      kind: 'notification',
+      customer: c._id,
       to: config.notifyEmails.split(',').map((x) => x.trim()).filter(Boolean),
       subject: `[e-Invoicing] ${first ? 'New submission' : 'Updated submission'}: ${c.code} – ${d.companyName}`,
       text: plainRows,

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0 — 2026-10-28
+
+### New
+- **Emails page**: every email the system sends (invites, reminders, confirmations, submission alerts, test emails), one row per recipient, with its delivery status from Mailjet: Waiting, Delivered, Opened, Bounced, Blocked, Marked as spam, Failed. Tiles to filter problems, search, filters by status and type, and Excel export. Click an email to see Mailjet's reason and every delivery event.
+- **Customer page → Emails card**: whether each email to that customer arrived.
+- Delivery status arrives through a Mailjet webhook (`MAILJET_WEBHOOK_SECRET`, set up with `npm run mailjet:webhook:prod`). **Refresh from Mailjet** updates recent emails without it.
+- A bounced or blocked invite or reminder now counts as a **failed email** on the Customers list and the Overview.
+- Settings → System shows whether delivery tracking is live. New Guide topic: *Emails and delivery status*.
+
+### Changed
+- Click tracking is off on every email, so customers' form links are never rewritten through Mailjet's tracking domain.
+- A failed confirmation email no longer stops the submission alert to finance.
+
 ## 1.3.1 — 2026-10-28
 
 ### Fixed

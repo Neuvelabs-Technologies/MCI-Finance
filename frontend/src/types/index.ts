@@ -169,6 +169,45 @@ export interface CustomerList {
   limit: number;
 }
 
+export type MailKind = 'invite' | 'reminder' | 'confirmation' | 'notification' | 'test';
+export type MailStatus =
+  | 'queued'
+  | 'delivered'
+  | 'opened'
+  | 'clicked'
+  | 'unsubscribed'
+  | 'spam'
+  | 'bounced'
+  | 'blocked'
+  | 'failed'
+  | 'accepted'
+  | 'not_sent';
+
+export interface EmailMessage {
+  _id: string;
+  at: string;
+  kind: MailKind;
+  customer?: { _id: string; code: string; name: string } | string | null;
+  to: string;
+  subject: string;
+  provider: 'mailjet' | 'smtp' | 'none';
+  status: MailStatus;
+  statusAt: string;
+  detail?: string;
+  events: { at: string; type: string; detail?: string }[];
+  demo?: boolean;
+}
+
+export interface EmailList {
+  emails: EmailMessage[];
+  total: number;
+  page: number;
+  limit: number;
+  /** Count of all emails by status (not filtered). */
+  summary: Partial<Record<MailStatus, number>>;
+  provider: 'mailjet' | 'smtp' | 'none';
+}
+
 export interface AuditList {
   logs: AuditLog[];
   total: number;
@@ -195,6 +234,8 @@ export interface SystemInfo {
   inMemoryDatabase: boolean;
   smtpConfigured: boolean;
   mailProvider: 'mailjet' | 'smtp' | 'none';
+  /** Mailjet reports delivery events to this server. */
+  deliveryWebhook: boolean;
   publicBaseUrl: string;
   cookieSecure: boolean;
   maxFileMb: number;

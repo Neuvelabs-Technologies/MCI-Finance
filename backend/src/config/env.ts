@@ -44,6 +44,9 @@ export const config = {
   mailjet: {
     apiKey: env('MAILJET_API_KEY', ''),
     secretKey: env('MAILJET_SECRET_KEY', ''),
+    // Password Mailjet uses when it reports delivery events to /api/webhooks/mailjet.
+    // Empty = webhook off (statuses then only update with "Refresh from Mailjet").
+    webhookSecret: env('MAILJET_WEBHOOK_SECRET', ''),
   },
   // SMTP fallback, used only when the Mailjet keys are empty
   smtp: {
@@ -93,6 +96,8 @@ export function configWarnings(): string[] {
     if (!mailjet && (config.mailjet.apiKey || config.mailjet.secretKey))
       warnings.push('Only one of MAILJET_API_KEY / MAILJET_SECRET_KEY is set — Mailjet needs both');
     if (!mailjet && !config.smtp.host) warnings.push('No email provider set (MAILJET_API_KEY/MAILJET_SECRET_KEY or SMTP_HOST) — emails will only be written to the log');
+    if (mailjet && !config.mailjet.webhookSecret)
+      warnings.push('MAILJET_WEBHOOK_SECRET is empty — email delivery statuses only update when an admin presses "Refresh from Mailjet"');
     if (mailjet && !config.mailFrom) warnings.push('MAIL_FROM is empty — Mailjet needs a verified sender address, so emails will fail');
     if (config.allowDemoData) warnings.push('ALLOW_DEMO_DATA is on — turn it off on the live server');
     if (config.quickLogin) warnings.push('QUICK_LOGIN is on — anyone who can open the site can sign in as an admin. Never use it on the live server');

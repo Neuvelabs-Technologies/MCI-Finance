@@ -1,6 +1,9 @@
+import crypto from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
+import type { Types } from 'mongoose';
 import { config } from '../config/env.js';
 import type { CustomerDoc, EmailLogEntry } from '../models/Customer.js';
+import { EmailMessage, type IEmailMessage, type MailKind, type MailStatus } from '../models/EmailMessage.js';
 import type { EmailSettings, ISettings } from '../models/Settings.js';
 import { logger } from '../utils/logger.js';
 import { formLink } from '../utils/token.js';
@@ -49,20 +52,37 @@ interface MailjetError {
 }
 interface MailjetResponse {
   ErrorMessage?: string;
-  Messages?: { Status?: string; Errors?: MailjetError[] }[];
+  Messages?: { Status?: string; Errors?: MailjetError[]; To?: { Email: string; MessageUUID?: string; MessageID?: string }[] }[];
 }
+
+/** What happened to one recipient when the email was handed over. */
+export interface SentRecipient {
+  email: string;
+  messageUuid?: string;
+  messageId?: string;
+}
+
+export interface SendOutcome {
+  provider: MailProvider;
+  recipients: SentRecipient[];
+}
+
+const recipientList = (to: string | string[]): string[] => (Array.isArray(to) ? to : [to]);
 
 const MAILJET_SEND_URL = 'https://api.mailjet.com/v3.1/send';
 
-async function sendViaMailjet({ to, subject, text, html, replyTo }: SendInput): Promise<void> {
+async function sendViaMailjet({ to, subject, text, html, replyTo, customId }: SendInput): Promise<SendOutcome> {
   if (!config.mailFrom) throw new Error('MAIL_FROM is empty — set it to a sender address verified in Mailjet');
   const message = {
     From: parseAddress(config.mailFrom),
-    To: (Array.isArray(to) ? to : [to]).map((Email) => ({ Email })),
+    To: recipientList(to).map((Email) => ({ Email })),
     ...(replyTo ? { ReplyTo: { Email: replyTo } } : {}),
     Subject: subject,
     TextPart: text,
     HTMLPart: html,
+    // Links carry the customer's private form token: don't route them through Mailjet's click tracker
+    TrackClicks: 'disabled',
+    ...(customId ? { CustomID: customId } : {}),
   };
   const auth = Buffer.from(`${config.mailjet.apiKey}:${config.mailjet.secretKey}`).toString('base64');
   const res = await fetch(MAILJET_SEND_URL, {
@@ -71,9 +91,21 @@ async function sendViaMailjet({ to, subject, text, html, replyTo }: SendInput): 
     body: JSON.stringify({ Messages: [message] }),
     signal: AbortSignal.timeout(30_000),
   });
-  const body = (await res.json().catch(() => ({}))) as MailjetResponse;
+  // MessageID is a 64-bit number that JSON.parse would round, so read it as a string
+  const raw = (await res.text().catch(() => '')).replace(/"MessageID"\s*:\s*(\d+)/g, '"MessageID":"$1"');
+  let body: MailjetResponse = {};
+  try {
+    body = JSON.parse(raw) as MailjetResponse;
+  } catch {
+    // not JSON: reported below by HTTP status
+  }
   const result = body.Messages?.[0];
-  if (res.ok && result?.Status === 'success') return;
+  if (res.ok && result?.Status === 'success') {
+    return {
+      provider: 'mailjet',
+      recipients: (result.To ?? []).map((r) => ({ email: r.Email.toLowerCase(), messageUuid: r.MessageUUID, messageId: r.MessageID })),
+    };
+  }
 
   const reasons = (result?.Errors ?? []).map((e) =>
     e.ErrorRelatedTo?.length ? `${e.ErrorMessage} (${e.ErrorRelatedTo.join(', ')})` : String(e.ErrorMessage),
@@ -154,27 +186,93 @@ export function renderEmail({ subjectTpl, bodyTpl, settings, customer }: RenderI
   return { subject, text, html: emailShell(htmlBody, settings) };
 }
 
-interface SendInput {
+export interface SendInput {
   to: string | string[];
   subject: string;
   text: string;
   html: string;
   replyTo?: string;
+  /** Our reference for this email; Mailjet returns it in delivery events. */
+  customId?: string;
 }
 
-export async function sendMail(input: SendInput): Promise<void> {
+/** Hand an email to the configured provider. Throws if it is rejected. Use deliver() to also record it. */
+export async function sendMail(input: SendInput): Promise<SendOutcome> {
   const provider = mailProvider();
   if (provider === 'mailjet') return sendViaMailjet(input);
   const { to, subject, text, html, replyTo } = input;
   const from = config.mailFrom || config.smtp.user || 'no-reply@localhost';
   await getTransport().sendMail({ from, to, subject, text, html, replyTo });
   if (provider === 'none') logger.info({ to, subject }, `[mail] Email sending not configured — email logged, not sent:\n${text}`);
+  return { provider, recipients: recipientList(to).map((email) => ({ email: email.toLowerCase() })) };
 }
 
 export function templatesFor(kind: EmailLogEntry['kind'], e: EmailSettings): { subjectTpl: string; bodyTpl: string } {
   return kind === 'reminder'
     ? { subjectTpl: e.reminderSubject, bodyTpl: e.reminderBody }
     : { subjectTpl: e.inviteSubject, bodyTpl: e.inviteBody };
+}
+
+export interface DeliverInput extends Omit<SendInput, 'customId'> {
+  kind: MailKind;
+  customer?: Types.ObjectId;
+  /** Demo customer: record the email as delivered without sending it. */
+  demo?: boolean;
+}
+
+/** Saving the email record must never stop the email itself. */
+async function record(what: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    logger.warn({ err }, `[mail] could not ${what}`);
+  }
+}
+
+/**
+ * Send an email and record it (one EmailMessage per recipient) so its delivery status can be followed.
+ * Throws if the provider rejects it; the failure is recorded first.
+ */
+export async function deliver({ kind, customer, demo, ...mail }: DeliverInput): Promise<{ batchId: string }> {
+  const to = [...new Set(recipientList(mail.to).map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (!to.length) throw new Error('No email address');
+  const batchId = crypto.randomUUID();
+  const provider = mailProvider();
+  const now = new Date();
+  const base: Partial<IEmailMessage> = { at: now, statusAt: now, kind, customer, subject: mail.subject, provider, batchId, demo: !!demo };
+
+  if (demo) {
+    await record('record a demo email', () =>
+      EmailMessage.insertMany(to.map((email) => ({ ...base, to: email, status: 'delivered', detail: 'Demo customer — not really sent', events: [] })))
+    );
+    return { batchId };
+  }
+
+  // Recorded before sending, so a delivery event that arrives quickly always finds its record
+  await record('record an email', () => EmailMessage.insertMany(to.map((email) => ({ ...base, to: email, status: 'queued', events: [] }))));
+  try {
+    const out = await sendMail({ ...mail, to, customId: batchId });
+    const status: MailStatus | undefined = provider === 'smtp' ? 'accepted' : provider === 'none' ? 'not_sent' : undefined;
+    await record('save message ids', () =>
+      Promise.all(
+        to.map((email) => {
+          const r = out.recipients.find((x) => x.email === email);
+          const set: Partial<IEmailMessage> = {};
+          if (r?.messageUuid) set.messageUuid = r.messageUuid;
+          if (r?.messageId) set.messageId = r.messageId;
+          if (status) Object.assign(set, { status, statusAt: new Date() });
+          return Object.keys(set).length ? EmailMessage.updateOne({ batchId, to: email }, { $set: set }) : null;
+        })
+      )
+    );
+  } catch (err) {
+    const detail = (err as Error).message;
+    await record('record a failed email', () =>
+      EmailMessage.updateMany({ batchId }, { $set: { status: 'failed', statusAt: new Date(), detail }, $push: { events: { at: new Date(), type: 'failed', detail } } })
+    );
+    throw err;
+  }
+  return { batchId };
 }
 
 /** Send an invite or reminder to a customer. Adds the outcome to customer.emailLog (caller saves). */
@@ -184,9 +282,9 @@ export async function sendCustomerEmail(kind: EmailLogEntry['kind'], customer: C
   const entry: EmailLogEntry = { at: new Date(), kind, to, ok: false };
   try {
     if (!to.length) throw new Error('Customer has no email address');
-    // Demo customers have made-up addresses: record the email as sent without sending it.
-    if (customer.demo) logger.debug({ code: customer.code, kind }, '[mail] demo customer — email simulated');
-    else await sendMail({ to, ...rendered, replyTo: settings.contactEmail || undefined });
+    // Demo customers have made-up addresses: recorded as delivered without sending.
+    const { batchId } = await deliver({ kind, customer: customer._id, demo: !!customer.demo, to, ...rendered, replyTo: settings.contactEmail || undefined });
+    entry.batchId = batchId;
     entry.ok = true;
   } catch (err) {
     entry.error = (err as Error).message;
