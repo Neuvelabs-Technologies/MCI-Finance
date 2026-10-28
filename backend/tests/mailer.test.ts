@@ -12,6 +12,9 @@ describe('parseAddress', () => {
     expect(parseAddress('"MCI Middle East – Accounts" <mci.admin@wearemci.com>')).toEqual({ Email: 'mci.admin@wearemci.com', Name: 'MCI Middle East – Accounts' });
     expect(parseAddress('MCI <mci.admin@wearemci.com>')).toEqual({ Email: 'mci.admin@wearemci.com', Name: 'MCI' });
     expect(parseAddress(' mci.admin@wearemci.com ')).toEqual({ Email: 'mci.admin@wearemci.com' });
+    // Docker's --env-file keeps the quotes from MAIL_FROM="…"
+    expect(parseAddress('"MCI Accounts <mci.admin@wearemci.com>"')).toEqual({ Email: 'mci.admin@wearemci.com', Name: 'MCI Accounts' });
+    expect(parseAddress('"mci.admin@wearemci.com"')).toEqual({ Email: 'mci.admin@wearemci.com' });
   });
 });
 

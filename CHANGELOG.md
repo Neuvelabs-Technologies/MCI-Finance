@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1 — 2026-10-28
+
+### Fixed
+- Mailjet rejected the sender when `MAIL_FROM` was quoted in a Docker env file (Docker keeps the quotes). The quotes are now ignored.
+
 ## 1.3.0 — 2026-10-28
 
 ### Changed

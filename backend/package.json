@@ -1,6 +1,6 @@
 {
   "name": "mci-einvoice-backend",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "description": "UAE e-invoicing customer data collection — API (Express + MongoDB)",
   "type": "module",

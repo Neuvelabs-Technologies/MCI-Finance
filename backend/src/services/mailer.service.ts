@@ -31,8 +31,12 @@ function getTransport(): Transporter {
   return transport;
 }
 
-/** Split `"Name" <email@x>` into its parts; a bare address is returned as is. */
-export function parseAddress(s: string): { Email: string; Name?: string } {
+/**
+ * Split `"Name" <email@x>` into its parts; a bare address is returned as is.
+ * Quotes around the whole value are dropped: Docker's --env-file keeps them as part of the value.
+ */
+export function parseAddress(raw: string): { Email: string; Name?: string } {
+  const s = raw.trim().replace(/^(["'])(.*)\1$/, '$2');
   const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(s);
   if (!m) return { Email: s.trim() };
   const name = m[1].trim();
