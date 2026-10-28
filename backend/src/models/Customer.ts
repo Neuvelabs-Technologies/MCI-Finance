@@ -20,7 +20,8 @@ export interface FileHistoryEntry extends StoredFile {
 
 export interface EmailLogEntry {
   at: Date;
-  kind: 'invite' | 'reminder';
+  /** "correction": asking a customer who submitted to fix something (sent with the review note). */
+  kind: 'invite' | 'reminder' | 'correction';
   to: string[];
   ok: boolean;
   error?: string;

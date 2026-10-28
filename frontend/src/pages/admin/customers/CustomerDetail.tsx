@@ -91,12 +91,15 @@ export default function CustomerDetail() {
   const entityName = (eid: string) => entities.find((e) => e._id === eid)?.name ?? 'Removed entity';
   const linkExpired = !!c.tokenExpiresAt && new Date(c.tokenExpiresAt) < new Date();
 
+  // A reminder to someone who submitted asks them to correct what's in the review note
+  const correction = c.status === 'submitted' && c.reviewStatus === 'needs_correction';
+
   async function sendEmail(kind: EmailKind) {
     try {
       const r = await customersApi.send(kind, { ids: [c.id] });
       const x = r.results[0];
       if (!x?.ok) throw new Error(x?.error ?? 'Send failed');
-      toast.success(kind === 'invite' ? 'Invite sent' : 'Reminder sent', {
+      toast.success(kind === 'invite' ? 'Invite sent' : correction ? 'Correction request sent' : 'Reminder sent', {
         description: r.smtpConfigured ? `To ${c.emails.join(', ')}` : 'Email server not connected — written to the server log only.',
       });
       await load();
@@ -409,9 +412,13 @@ export default function CustomerDetail() {
       <ConfirmDialog
         open={dialog === 'invite' || dialog === 'reminder'}
         onOpenChange={(o) => !o && setDialog(null)}
-        title={dialog === 'invite' ? 'Send the invite?' : 'Send a reminder?'}
-        description={`Emails ${c.emails?.join(', ')} with their personal form link.`}
-        confirmLabel={dialog === 'invite' ? 'Send invite' : 'Send reminder'}
+        title={dialog === 'invite' ? 'Send the invite?' : correction ? 'Ask the customer to correct their details?' : 'Send a reminder?'}
+        description={
+          correction
+            ? `Emails ${c.emails?.join(', ')} your note — “${c.reviewNote ?? ''}” — with their form link, so they can correct it and submit again.`
+            : `Emails ${c.emails?.join(', ')} with their personal form link.`
+        }
+        confirmLabel={dialog === 'invite' ? 'Send invite' : correction ? 'Send correction request' : 'Send reminder'}
         onConfirm={() => sendEmail(dialog === 'invite' ? 'invite' : 'reminder')}
       />
       <ConfirmDialog
@@ -644,7 +651,7 @@ function History({ c, logs }: { c: Customer; logs: AuditLog[] }) {
   const items = [
     ...c.emailLog.map((e) => ({
       at: e.at,
-      text: `${e.kind === 'invite' ? 'Invite' : 'Reminder'} email ${e.ok ? 'sent' : 'FAILED'} to ${e.to.join(', ')}${e.error ? ` — ${e.error}` : ''}`,
+      text: `${MAIL_KIND_LABEL[e.kind]} email ${e.ok ? 'sent' : 'FAILED'} to ${e.to.join(', ')}${e.error ? ` — ${e.error}` : ''}`,
       who: 'System',
       bad: !e.ok,
     })),

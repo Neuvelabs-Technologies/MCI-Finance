@@ -161,6 +161,35 @@ describe('email tracking', () => {
     expect(xlsx.headers['content-type']).toContain('spreadsheetml');
   });
 
+  it('emails a correction request (with the note) to a submitted customer marked "needs correction"', async () => {
+    const c = await agent.post('/api/customers').send({ code: 'EM03', name: 'Gamma', emails: 'g@gamma.example' });
+    const id = c.body.customer.id as string;
+    await Customer.updateOne({ _id: id }, { $set: { status: 'submitted', submittedAt: new Date(), invitedAt: new Date() } });
+
+    // Submitted and fine: a reminder makes no sense
+    const refused = await agent.post('/api/customers/send').send({ kind: 'reminder', ids: [id] });
+    expect(refused.body.results[0]).toMatchObject({ ok: false, error: 'Already submitted' });
+
+    await Customer.updateOne({ _id: id }, { $set: { reviewStatus: 'needs_correction', reviewNote: 'Upload the renewed trade licence' } });
+    const sent = await agent.post('/api/customers/send').send({ kind: 'reminder', ids: [id] });
+    expect(sent.body.results[0].ok).toBe(true);
+
+    const body = JSON.parse(String((mailjetFetch.mock.calls.at(-1) as unknown as [string, RequestInit])[1].body)).Messages[0];
+    expect(body.Subject).toContain('Action needed');
+    expect(body.TextPart).toContain('Upload the renewed trade licence');
+    expect(await EmailMessage.findOne({ customer: id })).toMatchObject({ kind: 'correction' });
+    const after = await Customer.findById(id);
+    expect(after!.emailLog.at(-1)!.kind).toBe('correction');
+    expect(after!.status).toBe('submitted');
+
+    // If that correction email bounces, it shows as a failed email (list filter, with search, and Overview)
+    const m = await EmailMessage.findOne({ customer: id });
+    await hook().send({ event: 'bounce', time: 1790000300, email: m!.to, Message_GUID: m!.messageUuid, hard_bounce: true, error: 'user unknown' });
+    expect((await agent.get('/api/customers?issue=email_failed&q=Gamma')).body.total).toBe(1);
+    expect((await agent.get('/api/customers?issue=email_failed&q=nobody')).body.total).toBe(0);
+    expect((await agent.get('/api/customers/overview')).body.attention.emailFailures).toBe(1);
+  });
+
   it('removes a customer’s emails with the customer', async () => {
     const id = await invitedCustomer();
     expect((await agent.delete(`/api/customers/${id}`)).status).toBe(200);

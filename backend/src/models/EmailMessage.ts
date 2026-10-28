@@ -2,7 +2,7 @@ import { Schema, model, type HydratedDocument, type Types } from 'mongoose';
 
 /** Every email the system sends, one record per recipient, with its delivery status. */
 
-export const MAIL_KINDS = ['invite', 'reminder', 'confirmation', 'notification', 'test'] as const;
+export const MAIL_KINDS = ['invite', 'reminder', 'correction', 'confirmation', 'notification', 'test'] as const;
 export type MailKind = (typeof MAIL_KINDS)[number];
 
 export const MAIL_STATUSES = [

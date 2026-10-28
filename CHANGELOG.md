@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1 — 2026-10-28
+
+### Fixed
+- **"Email customer to correct" didn't send anything**: it failed with "Already submitted". A customer marked *Needs correction* now gets a correction email containing the review note and their form link ("Action needed: please update your UAE e-invoicing details"). It shows as *Correction request* in their history and on the Emails page.
+- A failed or bounced email to a customer asked to correct their submission now shows under **Emails that failed** (Overview and Customers filter). It used to be hidden because they had already submitted.
+- Searching while the *failed email* filter was on ignored the filter.
+
 ## 1.4.0 — 2026-10-28
 
 ### New

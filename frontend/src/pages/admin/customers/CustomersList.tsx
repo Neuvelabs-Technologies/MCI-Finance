@@ -437,7 +437,7 @@ export default function CustomersList() {
         description={
           confirm?.kind === 'invite'
             ? `Emails the personal form link to ${plural(confirm?.count ?? 0, 'customer')}${confirm?.all ? ' who have not been sent an invite yet' : ''}.`
-            : `Emails a reminder to ${plural(confirm?.count ?? 0, 'customer')}. Anyone who has already submitted is skipped.`
+            : `Emails a reminder to ${plural(confirm?.count ?? 0, 'customer')}. Anyone who has already submitted is skipped, unless you asked them to correct something: they get the correction email with your note instead.`
         }
       >
         <p className="text-sm text-muted-foreground">

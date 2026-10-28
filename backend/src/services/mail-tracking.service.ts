@@ -98,7 +98,7 @@ async function applyStatus(doc: EmailMessageDoc, status: MailStatus, at: Date, t
 
 /** A bounced/blocked invite or reminder shows as a failed email on the customer (lists, Overview, filters). */
 async function flagCustomerEmail(doc: EmailMessageDoc, detail: string): Promise<void> {
-  if (!doc.customer || (doc.kind !== 'invite' && doc.kind !== 'reminder')) return;
+  if (!doc.customer || !['invite', 'reminder', 'correction'].includes(doc.kind)) return;
   await Customer.updateOne(
     { _id: doc.customer, 'emailLog.batchId': doc.batchId },
     { $set: { 'emailLog.$.ok': false, 'emailLog.$.error': `${doc.to}: ${detail}` } }

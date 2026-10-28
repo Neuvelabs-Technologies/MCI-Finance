@@ -47,6 +47,7 @@ export const MAIL_STATUS_HELP: Record<MailStatus, string> = {
 export const MAIL_KIND_LABEL: Record<MailKind, string> = {
   invite: 'Invite',
   reminder: 'Reminder',
+  correction: 'Correction request',
   confirmation: 'Confirmation',
   notification: 'Submission alert',
   test: 'Test',

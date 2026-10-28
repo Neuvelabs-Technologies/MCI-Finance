@@ -51,6 +51,10 @@ export interface ListQuery {
   demo?: string;
 }
 
+/** Customers we're still waiting on: not submitted yet, or asked to correct their submission. */
+const WAITING_ON_CUSTOMER: QueryFilter<ICustomer>[] = [{ status: { $ne: 'submitted' } }, { reviewStatus: 'needs_correction' }];
+const LAST_EMAIL_FAILED = { $expr: { $eq: [{ $arrayElemAt: ['$emailLog.ok', -1] }, false] } };
+
 /** Turn the list/export query string into a MongoDB filter. */
 export function buildFilter(q: ListQuery): QueryFilter<ICustomer> {
   const filter: QueryFilter<ICustomer> = {};
@@ -62,7 +66,8 @@ export function buildFilter(q: ListQuery): QueryFilter<ICustomer> {
     filter.reviewStatus = q.review;
   }
   // Problems the Overview page links to
-  if (q.issue === 'email_failed') Object.assign(filter, { status: { $ne: 'submitted' }, $expr: { $eq: [{ $arrayElemAt: ['$emailLog.ok', -1] }, false] } });
+  // $and, so the search box's own $or can't replace this one
+  if (q.issue === 'email_failed') Object.assign(filter, { $and: [{ $or: WAITING_ON_CUSTOMER }], ...LAST_EMAIL_FAILED });
   if (q.issue === 'link_expired') Object.assign(filter, { status: { $ne: 'submitted' }, tokenExpiresAt: { $lt: new Date() } });
   if (q.issue === 'no_email') Object.assign(filter, { status: { $ne: 'submitted' }, emails: { $size: 0 } });
   if (q.demo === 'only') filter.demo = true;
@@ -91,7 +96,6 @@ export async function getStats() {
 export async function getOverview() {
   const now = new Date();
   const pendingStatus = { $ne: 'submitted' as const };
-  const lastEmailFailed = { $expr: { $eq: [{ $arrayElemAt: ['$emailLog.ok', -1] }, false] } };
   const [stats, s, invited, opened, toReview, recentSubmissions, counts, activity] = await Promise.all([
     getStats(),
     Settings.get(),
@@ -101,7 +105,7 @@ export async function getOverview() {
     Customer.find({ status: 'submitted' }).sort({ submittedAt: -1 }).limit(6),
     Promise.all([
       Customer.countDocuments({ status: 'submitted', reviewStatus: 'needs_correction' }),
-      Customer.countDocuments({ status: pendingStatus, ...lastEmailFailed }),
+      Customer.countDocuments({ $or: WAITING_ON_CUSTOMER, ...LAST_EMAIL_FAILED }),
       Customer.countDocuments({ status: pendingStatus, tokenExpiresAt: { $lt: now } }),
       Customer.countDocuments({ status: pendingStatus, emails: { $size: 0 } }),
     ]),
@@ -188,7 +192,7 @@ function markEmailed(c: CustomerDoc, kind: EmailLogEntry['kind']): void {
 }
 
 /** Email invites or reminders. Pass `allPending` to target everyone still waiting instead of `ids`. */
-export async function sendEmails(kind: EmailLogEntry['kind'], ids: (Types.ObjectId | string)[], allPending: boolean): Promise<SendResult[]> {
+export async function sendEmails(kind: 'invite' | 'reminder', ids: (Types.ObjectId | string)[], allPending: boolean): Promise<SendResult[]> {
   const targets = allPending ? await pendingIds(kind) : ids;
   const s = await Settings.get();
   const results: SendResult[] = [];
@@ -196,13 +200,15 @@ export async function sendEmails(kind: EmailLogEntry['kind'], ids: (Types.Object
   for (const id of targets) {
     const c = await Customer.findById(id);
     if (!c) continue;
-    if (kind === 'reminder' && c.status === 'submitted') {
+    // A reminder to someone who submitted is only for asking them to correct something
+    const correction = kind === 'reminder' && c.status === 'submitted' && c.reviewStatus === 'needs_correction';
+    if (kind === 'reminder' && c.status === 'submitted' && !correction) {
       results.push({ id, code: c.code, ok: false, error: 'Already submitted' });
       continue;
     }
     const expired = !c.token || (c.tokenExpiresAt && c.tokenExpiresAt < new Date());
     if (expired) issueToken(c, s.linkValidityDays);
-    const r = await sendCustomerEmail(kind, c, s);
+    const r = await sendCustomerEmail(correction ? 'correction' : kind, c, s);
     if (r.ok) markEmailed(c, kind);
     await c.save();
     results.push({ id, code: c.code, ok: r.ok, error: r.error });

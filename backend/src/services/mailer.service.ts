@@ -156,7 +156,7 @@ interface RenderInput {
   subjectTpl: string;
   bodyTpl: string;
   settings: EmailBranding;
-  customer: { code: string; name: string; contactName?: string; token?: string | null };
+  customer: { code: string; name: string; contactName?: string; token?: string | null; reviewNote?: string };
 }
 
 export function renderEmail({ subjectTpl, bodyTpl, settings, customer }: RenderInput): RenderedEmail {
@@ -171,6 +171,7 @@ export function renderEmail({ subjectTpl, bodyTpl, settings, customer }: RenderI
     orgName: settings.orgName,
     contactName: settings.contactName,
     contactEmail: settings.contactEmail,
+    reviewNote: customer.reviewNote ?? '',
   };
   const subject = fill(subjectTpl, vars);
   const text = fill(bodyTpl, { ...vars, button: `Open the form: ${link}` });
@@ -207,7 +208,28 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
   return { provider, recipients: recipientList(to).map((email) => ({ email: email.toLowerCase() })) };
 }
 
+/** Sent when finance asks a customer who has submitted to correct something. {{reviewNote}} is finance's note. */
+const CORRECTION_SUBJECT = 'Action needed: please update your UAE e-invoicing details – {{code}}';
+const CORRECTION_BODY = `Dear Valued Customer,
+
+Thank you for submitting your company's UAE e-invoicing details. On review, we need you to correct the following:
+
+{{reviewNote}}
+
+Please open your form, make the change and submit it again by {{dueDate}}. Your other answers are kept.
+
+{{button}}
+
+If the button does not work, copy this link into your browser:
+{{link}}
+
+Regards,
+{{contactName}}
+{{orgName}}
+{{contactEmail}}`;
+
 export function templatesFor(kind: EmailLogEntry['kind'], e: EmailSettings): { subjectTpl: string; bodyTpl: string } {
+  if (kind === 'correction') return { subjectTpl: CORRECTION_SUBJECT, bodyTpl: CORRECTION_BODY };
   return kind === 'reminder'
     ? { subjectTpl: e.reminderSubject, bodyTpl: e.reminderBody }
     : { subjectTpl: e.inviteSubject, bodyTpl: e.inviteBody };

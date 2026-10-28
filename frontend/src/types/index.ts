@@ -99,7 +99,7 @@ export interface DemoStatus {
 
 export interface EmailLogEntry {
   at: string;
-  kind: EmailKind;
+  kind: EmailKind | 'correction';
   to: string[];
   ok: boolean;
   error?: string;
@@ -169,7 +169,7 @@ export interface CustomerList {
   limit: number;
 }
 
-export type MailKind = 'invite' | 'reminder' | 'confirmation' | 'notification' | 'test';
+export type MailKind = 'invite' | 'reminder' | 'correction' | 'confirmation' | 'notification' | 'test';
 export type MailStatus =
   | 'queued'
   | 'delivered'
