@@ -7,7 +7,7 @@ import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
 import { buildExport, buildImportTemplate } from '../../services/excel.service.js';
 import { mailConfigured } from '../../services/mailer.service.js';
-import { UNKNOWN_TYPE, VIEWABLE_TYPES, customerFilePath, deleteCustomerFiles } from '../../services/storage.service.js';
+import { UNKNOWN_TYPE, VIEWABLE_TYPES, deleteCustomerFiles, openCustomerFile, sendStoredFile } from '../../services/storage.service.js';
 import { badRequest, notFound } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { XLSX_MIME, allEmailsValid, isId, parseEmails, str } from '../../utils/http.js';
@@ -165,7 +165,7 @@ export async function remove(req: Request, res: Response) {
   if (!isId(req.params.id)) throw notFound();
   const c = await Customer.findByIdAndDelete(req.params.id);
   if (!c) throw notFound();
-  deleteCustomerFiles(c._id);
+  await deleteCustomerFiles(c._id);
   await EmailMessage.deleteMany({ customer: c._id });
   await audit(req, 'customer.deleted', { details: { code: c.code, name: c.name } });
   res.json({ ok: true });
@@ -179,7 +179,7 @@ export async function removeMany(req: Request, res: Response) {
   for (const id of ids) {
     const c = await Customer.findByIdAndDelete(id);
     if (!c) continue;
-    deleteCustomerFiles(c._id);
+    await deleteCustomerFiles(c._id);
     await EmailMessage.deleteMany({ customer: c._id });
     await audit(req, 'customer.deleted', { details: { code: c.code, name: c.name } });
     deleted++;
@@ -217,8 +217,8 @@ export async function file(req: Request, res: Response) {
   const version = str(req.query.v);
   const meta = version ? c.fileHistory.find((h) => h.field === field && h.storedName === version) : c.files?.[field];
   if (!meta?.storedName) throw notFound();
-  const p = customerFilePath(c._id, meta.storedName);
-  if (!p) throw notFound('File missing on disk');
+  const stored = await openCustomerFile(c._id, meta.storedName);
+  if (!stored) throw notFound('File missing from storage');
   const name = `${c.code}-${field}${path.extname(meta.storedName)}`;
   // Only PDFs and images (recognised from their contents) open in the browser. Anything else
   // downloads, and the sandbox stops an uploaded web page or SVG from running in the admin panel.
@@ -227,7 +227,7 @@ export async function file(req: Request, res: Response) {
   res.set('Content-Disposition', `${viewable ? 'inline' : 'attachment'}; filename="${name}"`);
   res.set('Content-Security-Policy', 'sandbox');
   res.set('Cache-Control', 'private, no-store');
-  res.sendFile(p);
+  await sendStoredFile(res, stored);
 }
 
 export async function exportXlsx(req: Request, res: Response) {

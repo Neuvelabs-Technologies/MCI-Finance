@@ -24,3 +24,6 @@ npm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Built frontend copied in by the Azure deploy workflow
+backend/public/

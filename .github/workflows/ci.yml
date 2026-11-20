@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
-    # Pushes that change the apps run CI from their deploy workflow instead (see backend.yml / frontend.yml)
+    branches: [uat]
+    # Pushes that change the apps run CI from their deploy workflow instead (see backend.yml / frontend.yml).
+    # On main, azure-prod.yml runs it before every deploy.
     paths-ignore:
       - 'backend/**'
       - 'frontend/**'

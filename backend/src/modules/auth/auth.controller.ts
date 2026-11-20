@@ -1,15 +1,17 @@
 import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { config } from '../../config/env.js';
+import { config, microsoftConfigured, passwordLoginEnabled } from '../../config/env.js';
 import { clearSession, currentAdmin, setSession } from '../../middlewares/auth.middleware.js';
 import { Admin } from '../../models/Admin.js';
 import { Customer } from '../../models/Customer.js';
 import { mailConfigured } from '../../services/mailer.service.js';
+import { adminForIdentity, completeSignIn, failureReason, startSignIn } from '../../services/microsoft-auth.service.js';
 import { ApiError, badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { str } from '../../utils/http.js';
 
 export async function login(req: Request, res: Response) {
+  if (!passwordLoginEnabled()) throw new ApiError(403, 'Password sign-in is turned off. Use Sign in with Microsoft.');
   const email = str(req.body?.email).toLowerCase().trim();
   const password = str(req.body?.password);
   const admin = await Admin.findOne({ email });
@@ -19,6 +21,39 @@ export async function login(req: Request, res: Response) {
   setSession(res, admin);
   await audit(req, 'admin.login', { actor: admin.email });
   res.json({ admin: admin.toSafe() });
+}
+
+/** Which sign-in options the login page shows. Public; says nothing about the configuration itself. */
+export function options(_req: Request, res: Response) {
+  res.json({ microsoft: microsoftConfigured(), password: passwordLoginEnabled() });
+}
+
+/** Where to send the browser to sign in with Microsoft. */
+export function microsoftStart(_req: Request, res: Response) {
+  res.json(startSignIn());
+}
+
+/** { code, state, transaction } posted by the /auth/callback page after Microsoft redirects back. */
+export async function microsoftCallback(req: Request, res: Response) {
+  const code = str(req.body?.code);
+  const state = str(req.body?.state);
+  const transaction = str(req.body?.transaction);
+  if (!code || !state || !transaction) throw new ApiError(400, 'code, state and transaction are required');
+  let email = '';
+  try {
+    const identity = await completeSignIn({ code, state, transaction });
+    email = identity.email;
+    const { admin, created } = await adminForIdentity(identity);
+    admin.lastLoginAt = new Date();
+    await admin.save();
+    if (created) await audit(req, 'admin.created', { actor: admin.email, details: { email: admin.email, via: 'microsoft' } });
+    setSession(res, admin);
+    await audit(req, 'admin.login', { actor: admin.email, details: { method: 'microsoft' } });
+    res.json({ admin: admin.toSafe() });
+  } catch (e) {
+    await audit(req, 'admin.login_failed', { actor: email || 'unknown', details: { method: 'microsoft', reason: failureReason(e) } });
+    throw e;
+  }
 }
 
 export function logout(_req: Request, res: Response) {
@@ -32,6 +67,7 @@ export async function me(req: Request, res: Response) {
     smtpConfigured: mailConfigured(),
     publicBaseUrl: config.publicBaseUrl,
     version: config.version,
+    signIn: { microsoft: microsoftConfigured(), password: passwordLoginEnabled() },
     demo: { count: await Customer.countDocuments({ demo: true }), allowed: config.allowDemoData },
   });
 }

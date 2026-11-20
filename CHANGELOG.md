@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0 — 2026-11-20
+
+### New
+- **Production on MCI's Azure** (https://finance-ae.wearemci.com): pushing to `main` tests the code, deploys it to the App Service `app-finance-ae-prod-001` and checks that the new version answers `/api/health`. The UAT server (Tencent) now deploys from the `uat` branch.
+- **Sign in with Microsoft** (MCI's Entra ID, `ENTRA_*` settings). Members of MCI's finance app group can sign in; their admin account is created the first time. `PASSWORD_LOGIN=false` turns off email-and-password sign-in. It stays on until Microsoft sign-in is fully set up, so a missing setting can't lock everyone out.
+- **Documents in Azure Blob storage** when `AZURE_STORAGE_BLOB_ENDPOINT` is set, reached with the app's managed identity. Without it, documents stay on the server's disk as before.
+- On Azure, the API serves the frontend itself (no nginx).
+
+### Changed
+- Reads `MONGODB_URI` (MCI's setting name) as well as `MONGO_URI`. When the URI names no database, the database is `finance` (`MONGODB_DB` overrides).
+- `/api/health` also reports where documents are kept and, on Azure, the deployed commit.
+- Sign-in rate limits work behind Azure's front end (it adds a port to the client address).
+- Mongoose updated to 9.12 (security fixes).
+
 ## 1.4.1 — 2026-10-28
 
 ### Fixed

@@ -17,7 +17,7 @@ import type { AdminUser } from '@/types';
 const EMPTY_USER = { name: '', email: '', password: '' };
 
 export function UsersSettings() {
-  const { admin } = useAdmin();
+  const { admin, signIn } = useAdmin();
   const [list, setList] = useState<AdminUser[]>([]);
   const [f, setF] = useState(EMPTY_USER);
   const [pw, setPw] = useState({ current: '', next: '' });
@@ -70,7 +70,9 @@ export function UsersSettings() {
                   <TableCell className="pl-5 font-semibold md:pl-6">
                     {a.name || '—'} {a.id === admin.id ? <Badge variant="primary">You</Badge> : null}
                   </TableCell>
-                  <TableCell>{a.email}</TableCell>
+                  <TableCell>
+                    {a.email} {a.microsoft ? <Badge>Microsoft</Badge> : null}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{a.lastLoginAt ? fmtDateTime(a.lastLoginAt) : 'Never'}</TableCell>
                   <TableCell className="pr-5 text-right md:pr-6">
                     {a.id !== admin.id ? (
@@ -84,39 +86,48 @@ export function UsersSettings() {
             </TableBody>
           </Table>
         </div>
-        <div className="grid gap-4 sm:grid-cols-4">
-          <FormField label="Name" htmlFor="un">
-            <Input id="un" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          </FormField>
-          <FormField label="Email" htmlFor="ue">
-            <Input id="ue" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-          </FormField>
-          <FormField label="Temporary password" htmlFor="up" help="At least 10 characters.">
-            <Input id="up" type="text" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
-          </FormField>
-          <div className="flex items-start pt-7">
-            <Button variant="outline" onClick={add} disabled={!f.email || f.password.length < 10}>
-              <UserPlus /> Add user
-            </Button>
+        {!signIn.password ? (
+          <p className="text-sm text-muted-foreground">
+            Sign-in is with Microsoft. Who can sign in is managed by MCI IT in Microsoft Entra (the finance app's user group): a member is added here the first
+            time they sign in. To take someone's access away, ask MCI IT to remove them from the group, then remove them here.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-4">
+            <FormField label="Name" htmlFor="un">
+              <Input id="un" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            </FormField>
+            <FormField label="Email" htmlFor="ue">
+              <Input id="ue" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+            </FormField>
+            <FormField label="Temporary password" htmlFor="up" help="At least 10 characters.">
+              <Input id="up" type="text" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+            </FormField>
+            <div className="flex items-start pt-7">
+              <Button variant="outline" onClick={add} disabled={!f.email || f.password.length < 10}>
+                <UserPlus /> Add user
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </FormSection>
 
-      <FormSection icon={KeyRound} title="Change my password" description="Changing it signs you out everywhere else.">
-        <div className="grid gap-4 sm:grid-cols-4">
-          <FormField label="Current password" htmlFor="cp">
-            <Input id="cp" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-          </FormField>
-          <FormField label="New password" htmlFor="np" help="At least 10 characters.">
-            <Input id="np" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-          </FormField>
-          <div className="flex items-start pt-7">
-            <Button variant="outline" onClick={changePassword} disabled={!pw.current || pw.next.length < 10}>
-              Change password
-            </Button>
+      {signIn.password ? (
+        <FormSection icon={KeyRound} title="Change my password" description="Changing it signs you out everywhere else.">
+          <div className="grid gap-4 sm:grid-cols-4">
+            <FormField label="Current password" htmlFor="cp">
+              <Input id="cp" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+            </FormField>
+            <FormField label="New password" htmlFor="np" help="At least 10 characters.">
+              <Input id="np" type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+            </FormField>
+            <div className="flex items-start pt-7">
+              <Button variant="outline" onClick={changePassword} disabled={!pw.current || pw.next.length < 10}>
+                Change password
+              </Button>
+            </div>
           </div>
-        </div>
-      </FormSection>
+        </FormSection>
+      ) : null}
 
       <ConfirmDialog
         open={!!removing}

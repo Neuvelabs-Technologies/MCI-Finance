@@ -77,8 +77,16 @@ export interface AdminUser {
   id: string;
   email: string;
   name?: string;
+  /** Has signed in with Microsoft at least once. */
+  microsoft?: boolean;
   lastLoginAt?: string;
   createdAt?: string;
+}
+
+/** Which sign-in methods this server offers. */
+export interface SignInOptions {
+  microsoft: boolean;
+  password: boolean;
 }
 
 export interface MeResponse {
@@ -86,6 +94,7 @@ export interface MeResponse {
   smtpConfigured: boolean;
   publicBaseUrl: string;
   version: string;
+  signIn: SignInOptions;
   demo: DemoStatus;
 }
 

@@ -15,8 +15,20 @@ export async function connectDb(uri = config.mongoUri): Promise<void> {
   }
   mongoose.connection.on('disconnected', () => logger.warn('[db] disconnected'));
   mongoose.connection.on('reconnected', () => logger.info('[db] reconnected'));
-  await mongoose.connect(target, { serverSelectionTimeoutMS: 10_000 });
-  logger.info('[db] connected');
+  const dbName = config.useMemoryDb ? undefined : databaseName(target, config.mongoDbName);
+  await mongoose.connect(target, { serverSelectionTimeoutMS: 10_000, ...(dbName ? { dbName } : {}) });
+  logger.info(`[db] connected to ${mongoose.connection.name}`);
+}
+
+/**
+ * MONGODB_DB if set; otherwise 'finance' when the URI names no database (MCI's DocumentDB
+ * URI ends in "/?tls=…", and the driver would quietly use "test"); otherwise the URI decides.
+ */
+export function databaseName(uri: string, configured: string): string | undefined {
+  if (configured) return configured;
+  const afterHost = uri.replace(/^mongodb(\+srv)?:\/\/[^/]*/, '');
+  const name = afterHost.replace(/^\//, '').split('?')[0];
+  return name ? undefined : 'finance';
 }
 
 export const dbIsUp = (): boolean => mongoose.connection.readyState === mongoose.ConnectionStates.connected;

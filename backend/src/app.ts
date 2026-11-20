@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -16,12 +18,19 @@ import publicFormRoutes from './modules/public-form/public-form.routes.js';
 import settingsRoutes from './modules/settings/settings.routes.js';
 import systemRoutes from './modules/system/system.routes.js';
 import webhooksRoutes from './modules/webhooks/webhooks.routes.js';
+import { storageKind } from './services/storage.service.js';
+import { normalizeForwardedFor } from './utils/client-ip.js';
 import { logger } from './utils/logger.js';
 
-/** The JSON API. The React frontend is built and served separately (see frontend/). */
-export function createApp() {
+// The built frontend, copied in by the Azure deploy workflow. Absent on the UAT server and in
+// development, where nginx or Vite serves the frontend instead.
+const PUBLIC_DIR = path.resolve(import.meta.dirname, '..', 'public');
+
+/** The JSON API, plus the React frontend when it's been built into backend/public (Azure). */
+export function createApp({ publicDir = PUBLIC_DIR }: { publicDir?: string } = {}) {
   const app = express();
   app.set('trust proxy', 1);
+  app.use(normalizeForwardedFor);
   app.disable('x-powered-by');
   app.use(
     helmet({
@@ -66,7 +75,7 @@ export function createApp() {
   // Liveness + readiness: 503 while the database is unreachable, so the load balancer / Docker can tell.
   app.get('/api/health', (_req, res) => {
     const db = dbIsUp();
-    res.status(db ? 200 : 503).json({ ok: db, db: db ? 'up' : 'down', version: config.version, uptime: Math.round(process.uptime()) });
+    res.status(db ? 200 : 503).json({ ok: db, db: db ? 'up' : 'down', storage: storageKind(), version: config.version, ...(config.commit ? { commit: config.commit } : {}), uptime: Math.round(process.uptime()) });
   });
 
   // Customer-facing (token link, no login)
@@ -82,7 +91,32 @@ export function createApp() {
   app.use('/api/audit', auditRoutes);
   app.use('/api/system', systemRoutes);
 
+  if (fs.existsSync(path.join(publicDir, 'index.html'))) serveFrontend(app, publicDir);
+
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
+}
+
+/** Serves the React app from the same origin as the API (Azure App Service, no nginx). */
+function serveFrontend(app: express.Express, publicDir: string): void {
+  const indexFile = path.join(publicDir, 'index.html');
+  const assetsDir = path.join(publicDir, 'assets') + path.sep;
+  app.use(
+    express.static(publicDir, {
+      index: false,
+      setHeaders(res, filePath) {
+        // Vite puts content-hashed files under /assets, so they never change.
+        if (filePath.startsWith(assetsDir)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        else if (filePath.includes(`${path.sep}brand${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=86400');
+        else res.setHeader('Cache-Control', 'no-cache');
+      },
+    })
+  );
+  // React routes (/admin/..., /f/<token>, /auth/callback) load the app. Unknown /api paths and
+  // missing /assets files (an old tab after a deploy) still get a 404 rather than HTML.
+  app.get(/^\/(?!api(?:\/|$)|assets\/)/, (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(indexFile);
+  });
 }

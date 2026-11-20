@@ -1,6 +1,6 @@
 {
   "name": "mci-einvoice-backend",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "description": "UAE e-invoicing customer data collection — API (Express + MongoDB)",
   "type": "module",
@@ -27,6 +27,8 @@
     "node": ">=22.12"
   },
   "dependencies": {
+    "@azure/identity": "^4.14.1",
+    "@azure/storage-blob": "^12.34.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "csv-parse": "^7.0.3",

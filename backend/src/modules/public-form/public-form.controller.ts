@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
-import { cleanupTemp, logoPath, storeCustomerFile } from '../../services/storage.service.js';
+import { cleanupTemp, openLogo, sendStoredFile, storeCustomerFile } from '../../services/storage.service.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { str } from '../../utils/http.js';
@@ -17,14 +17,14 @@ export async function info(_req: Request, res: Response) {
 
 export async function logo(_req: Request, res: Response) {
   const s = await Settings.get();
-  const p = s.logo?.storedName ? logoPath(s.logo.storedName) : null;
-  if (!p) {
+  const file = s.logo?.storedName ? await openLogo(s.logo.storedName) : null;
+  if (!file) {
     res.status(404).end();
     return;
   }
   res.type(s.logo?.mime || 'image/png');
   res.set('Cache-Control', 'public, max-age=300');
-  res.sendFile(p);
+  await sendStoredFile(res, file);
 }
 
 export async function getForm(req: Request, res: Response) {
@@ -85,7 +85,7 @@ export async function submitForm(req: Request, res: Response) {
 
     const result = validate(d, { sections: s.sections, hasEntities: activeIds.size > 0 }, fileState);
     if (Object.keys(result.errors).length) {
-      cleanupTemp(tmpFiles);
+      await cleanupTemp(tmpFiles);
       res.status(422).json({ error: 'Please correct the highlighted fields.', errors: result.errors, warnings: result.warnings });
       return;
     }
@@ -95,7 +95,7 @@ export async function submitForm(req: Request, res: Response) {
     for (const f of FILE_FIELDS) {
       const file = uploaded[f]?.[0];
       if (!file) continue;
-      const meta = storeCustomerFile(c._id, f, file);
+      const meta = await storeCustomerFile(c._id, f, file);
       const previous = c.toObject().files?.[f];
       if (previous?.storedName) c.fileHistory.push({ field: f, ...previous });
       c.set(`files.${f}`, meta);
@@ -122,7 +122,7 @@ export async function submitForm(req: Request, res: Response) {
 
     res.json({ ok: true, submittedAt: c.submittedAt, warnings: result.warnings });
   } catch (err) {
-    cleanupTemp(tmpFiles);
+    await cleanupTemp(tmpFiles);
     throw err;
   }
 }

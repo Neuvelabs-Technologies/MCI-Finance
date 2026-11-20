@@ -1,9 +1,10 @@
-name: Deploy Frontend
+name: Deploy MCI Finance frontend to UAT
 
+# UAT server (Tencent, crm-mci.neuvebooks.com). Production (main) deploys to Azure: azure-prod.yml
 on:
   push:
     branches:
-      - main
+      - uat
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend.yml'

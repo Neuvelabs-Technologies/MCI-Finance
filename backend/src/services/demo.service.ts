@@ -167,7 +167,7 @@ function assertAllowed(): void {
 export async function clearDemoData(): Promise<{ customers: number; entities: number; logs: number }> {
   const customers = await Customer.find({ demo: true }).select('_id');
   const ids = customers.map((c) => c._id);
-  for (const id of ids) deleteCustomerFiles(id);
+  for (const id of ids) await deleteCustomerFiles(id);
   const logs = await AuditLog.deleteMany({ $or: [{ customer: { $in: ids } }, { 'details.demo': true }] });
   await EmailMessage.deleteMany({ $or: [{ demo: true }, { customer: { $in: ids } }] });
   await Customer.deleteMany({ _id: { $in: ids } });
@@ -285,7 +285,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
       const files: Partial<Record<FileField, StoredFile>> = {};
       const history: FileHistoryEntry[] = [];
       for (const f of fields) {
-        files[f] = writeCustomerFile(c._id, f, samplePdf(docLines(s, f, data)), `${slug(s.name)}-${f}.pdf`, 'application/pdf', new Date(submittedAt));
+        files[f] = await writeCustomerFile(c._id, f, samplePdf(docLines(s, f, data)), `${slug(s.name)}-${f}.pdf`, 'application/pdf', new Date(submittedAt));
       }
       c.data = { ...data, entities: data.entities, tradeLicenceExpiry: data.tradeLicenceExpiry ? new Date(data.tradeLicenceExpiry) : undefined } as ICustomer['data'];
       c.files = files;
@@ -313,7 +313,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
         const at = submittedAt + DAY * 1.5;
         const old = files.tradeLicence;
         if (old) history.push({ field: 'tradeLicence', ...old });
-        files.tradeLicence = writeCustomerFile(c._id, 'tradeLicence', samplePdf([...docLines(s, 'tradeLicence', data), 'Renewed licence']), `${slug(s.name)}-tradeLicence-renewed.pdf`, 'application/pdf', new Date(at));
+        files.tradeLicence = await writeCustomerFile(c._id, 'tradeLicence', samplePdf([...docLines(s, 'tradeLicence', data), 'Renewed licence']), `${slug(s.name)}-tradeLicence-renewed.pdf`, 'application/pdf', new Date(at));
         c.files = files;
         c.fileHistory = history;
         c.data = { ...c.data, phone: '+971 4 555 0199', city: 'Dubai' };

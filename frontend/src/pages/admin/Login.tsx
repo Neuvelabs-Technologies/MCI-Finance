@@ -4,9 +4,12 @@ import { Eye, EyeOff, Lock, Mail, ShieldCheck, Zap } from 'lucide-react';
 import { authApi } from '@/api/auth.api';
 import { errorMessage } from '@/api/client';
 import { FormField, Notice } from '@/components/common/Form';
+import { MicrosoftLogo } from '@/components/common/MicrosoftLogo';
 import { MciArt, MciLogo } from '@/components/common/MciLogo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { startMicrosoftSignIn } from '@/lib/microsoft';
+import type { SignInOptions } from '@/types';
 
 export default function Login({ onDone }: { onDone: () => Promise<void> }) {
   const [email, setEmail] = useState('');
@@ -16,6 +19,9 @@ export default function Login({ onDone }: { onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [quick, setQuick] = useState<{ email: string; name?: string }[]>([]);
   const [quickBusy, setQuickBusy] = useState('');
+  // null while asking the server; password stays on if the question fails, so nobody is locked out.
+  const [methods, setMethods] = useState<SignInOptions | null>(null);
+  const [msBusy, setMsBusy] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
@@ -25,7 +31,22 @@ export default function Login({ onDone }: { onDone: () => Promise<void> }) {
       .quickLoginOptions()
       .then((r) => setQuick(r.enabled ? r.accounts : []))
       .catch(() => setQuick([]));
+    authApi
+      .options()
+      .then(setMethods)
+      .catch(() => setMethods({ microsoft: false, password: true }));
   }, []);
+
+  async function microsoftSignIn() {
+    setMsBusy(true);
+    setErr('');
+    try {
+      await startMicrosoftSignIn();
+    } catch (ex) {
+      setErr(errorMessage(ex));
+      setMsBusy(false);
+    }
+  }
 
   async function quickSignIn(email: string) {
     setQuickBusy(email);
@@ -72,6 +93,12 @@ export default function Login({ onDone }: { onDone: () => Promise<void> }) {
             <h2 className="text-lg font-bold">Sign in</h2>
             <p className="text-sm text-muted-foreground">For the MCI finance team.</p>
           </div>
+          {methods?.microsoft ? (
+            <Button type="button" size="lg" variant="outline" className="w-full gap-3" disabled={msBusy} onClick={() => void microsoftSignIn()}>
+              <MicrosoftLogo /> {msBusy ? 'Opening Microsoft…' : 'Sign in with Microsoft'}
+            </Button>
+          ) : null}
+          {methods?.microsoft && !methods.password && err ? <Notice tone="danger">{err}</Notice> : null}
           {quick.length ? (
             <>
               <div className="flex flex-col gap-2 rounded-xl border border-dashed border-warning/40 bg-warning-soft/50 p-3">
@@ -109,51 +136,63 @@ export default function Login({ onDone }: { onDone: () => Promise<void> }) {
               </div>
             </>
           ) : null}
-          <FormField label="Work email" htmlFor="email">
-            <div className="relative">
-              <Mail size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input
-                id="email"
-                type="email"
-                className="h-11 pl-10"
-                placeholder="you@mci-group.com"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-          </FormField>
-          <FormField label="Password" htmlFor="password">
-            <div className="relative">
-              <Lock size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input
-                id="password"
-                type={show ? 'text' : 'password'}
-                className="h-11 pr-10 pl-10"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-              <button
-                type="button"
-                className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShow((v) => !v)}
-                aria-label={show ? 'Hide password' : 'Show password'}
-              >
-                {show ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </FormField>
-          {err ? <Notice tone="danger">{err}</Notice> : null}
-          <Button type="submit" size="lg" disabled={busy} className="w-full">
-            {busy ? 'Signing in…' : 'Sign in'}
-          </Button>
+          {methods?.password ? (
+            <>
+              {methods.microsoft && !quick.length ? (
+                <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />
+                  or with email and password
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+              ) : null}
+              <FormField label="Work email" htmlFor="email">
+                <div className="relative">
+                  <Mail size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                  <Input
+                    id="email"
+                    type="email"
+                    className="h-11 pl-10"
+                    placeholder="you@mci-group.com"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoFocus={!methods.microsoft}
+                  />
+                </div>
+              </FormField>
+              <FormField label="Password" htmlFor="password">
+                <div className="relative">
+                  <Lock size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                  <Input
+                    id="password"
+                    type={show ? 'text' : 'password'}
+                    className="h-11 pr-10 pl-10"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="absolute top-1/2 right-3 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShow((v) => !v)}
+                    aria-label={show ? 'Hide password' : 'Show password'}
+                  >
+                    {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </FormField>
+              {err ? <Notice tone="danger">{err}</Notice> : null}
+              <Button type="submit" size="lg" disabled={busy} className="w-full">
+                {busy ? 'Signing in…' : 'Sign in'}
+              </Button>
+            </>
+          ) : null}
         </form>
         <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <ShieldCheck size={14} aria-hidden /> Sessions end after 12 hours. Too many attempts locks sign-in for 15 minutes.
+          <ShieldCheck size={14} aria-hidden />{' '}
+          {methods && !methods.password ? 'Sessions end after 12 hours.' : 'Sessions end after 12 hours. Too many attempts locks sign-in for 15 minutes.'}
         </p>
       </div>
     </div>

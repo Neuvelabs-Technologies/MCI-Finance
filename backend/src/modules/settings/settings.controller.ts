@@ -49,7 +49,7 @@ export async function update(req: Request, res: Response) {
 export async function uploadLogo(req: Request, res: Response) {
   if (!req.file) throw badRequest('Upload a PNG, JPG, SVG or WebP image under 1 MB');
   const s = await Settings.get();
-  s.logo = saveLogo(req.file);
+  s.logo = await saveLogo(req.file);
   await s.save();
   res.json({ ok: true });
 }

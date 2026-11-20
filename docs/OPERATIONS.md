@@ -2,6 +2,40 @@
 
 For IT and whoever runs the server. For how the finance team uses the system, see the **Guide** page inside the app (`/admin/guide`).
 
+| Server | Branch | Address | Section |
+|---|---|---|---|
+| **Production**: MCI's Azure App Service | `main` | https://finance-ae.wearemci.com | [Azure (production)](#azure-production) |
+| **UAT**: Tencent, Docker | `uat` | https://crm-mci.neuvebooks.com | sections 1–10 below |
+
+---
+
+## Azure (production)
+
+Push to `main` → `.github/workflows/azure-prod.yml` runs the full CI, builds one zip (compiled API, production `node_modules`, the frontend in `public/`, `build.json` with the commit), signs in to Azure as `id-finance-github-prod` (federated, no secrets), zip-deploys to `app-finance-ae-prod-001`, then waits until `/api/health` answers `ok:true` **with that commit**. If it doesn't within 10 minutes the run fails: open *Log stream* in the Azure portal.
+
+Changes reach UAT first: merge into `uat`, check, then merge `uat` into `main`.
+
+| Resource (rg-finance-prod-001, UAE North) | Use |
+|---|---|
+| App Service `app-finance-ae-prod-001` (Node 22, 1 instance, Always On) | API + frontend + hourly reminder job. Startup `node dist/server.js`, health check `/api/health`. Keep it at **1 instance** or reminders go out twice |
+| DocumentDB `docdb-finance-prod-001` (private endpoint) | Database `finance` (the URI names none; `MONGODB_DB` overrides) |
+| Storage `stfinanceaeprod001`, container `finance-documents` | All documents and the logo. App's managed identity has Storage Blob Data Contributor. **Production refuses to start without Blob storage** |
+| Entra app `APP-0029-FINANCE-prod` | Microsoft sign-in. Only members of `AZR-0029-FINANCE-prod-Users` get through; their admin account is created at first sign-in |
+| Identity `id-finance-github-prod` | GitHub deploys from `main` only. This repo sends GitHub's *immutable* OIDC subject, trusted by the credential `github-mci-finance-main-immutable` |
+
+**App settings** (App Service → Environment variables; never in the repo):
+
+| Setting | Value / who sets it |
+|---|---|
+| `MONGODB_URI`, `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET`, `ENTRA_REDIRECT_URI`, `AZURE_STORAGE_BLOB_ENDPOINT`, `AZURE_STORAGE_CONTAINER` | MCI IT |
+| `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` | MCI IT (Franck). Until set, emails are only written to the log |
+| `NODE_ENV=production`, `JWT_SECRET` (random), `PUBLIC_BASE_URL=https://finance-ae.wearemci.com`, `COOKIE_SECURE=true`, `PASSWORD_LOGIN=false`, `MAIL_FROM`, `TZ=Asia/Dubai`, `SCM_DO_BUILD_DURING_DEPLOYMENT=false` | Neuvelabs |
+| `MAILJET_WEBHOOK_SECRET`, `NOTIFY_EMAILS` | Neuvelabs, once Mailjet is live |
+
+Changing an app setting restarts the app. `JWT_SECRET` changing signs everyone out.
+
+**Removing someone's access**: MCI IT removes them from `AZR-0029-FINANCE-prod-Users`, then remove them under Settings → Users (sessions last at most 12 hours).
+
 ---
 
 ## 1. What runs where

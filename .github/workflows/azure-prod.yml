@@ -1,0 +1,110 @@
+# Production: MCI's Azure App Service (app-finance-ae-prod-001), https://finance-ae.wearemci.com
+# The UAT server (Tencent) deploys from the uat branch instead: backend.yml / frontend.yml.
+#
+# MCI's rules for the deploy identity (id-finance-github-prod):
+#   - It only signs in from the main branch. Other branches and pull requests fail to log in.
+#   - No `environment:` on the job. It changes the identity GitHub presents to Azure.
+#   - It can deploy to app-finance-ae-prod-001 and nothing else (Website Contributor).
+# This repo sends GitHub's immutable OIDC subject, so Azure must trust
+#   repo:Neuvelabs-Technologies@306990032/MCI-Finance@1431981878:ref:refs/heads/main
+# The IDs below are not secrets; the federated credential is what grants access.
+#
+# App settings (MONGODB_URI, ENTRA_*, AZURE_STORAGE_*, JWT_SECRET, MAILJET_*...) live in the
+# App Service, never here. See docs/OPERATIONS.md → "Azure (production)".
+
+name: Deploy MCI Finance to Azure (production)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# One deploy at a time; a newer push waits for the running one.
+concurrency:
+  group: azure-prod
+  cancel-in-progress: false
+
+env:
+  APP_NAME: app-finance-ae-prod-001
+  SITE_URL: https://finance-ae.wearemci.com
+
+jobs:
+  # Lint, typecheck, tests, build and audit must pass before anything is deployed
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      # No API URL needed: the app calls /api on its own origin.
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
+      # Only what runs: compiled API, production dependencies, and the frontend in public/
+      # (Express serves it). App Service starts it with `node dist/server.js`.
+      - name: Package
+        run: |
+          set -eu
+          PKG=$(mktemp -d)
+          cp -R backend/dist backend/package.json backend/package-lock.json "$PKG/"
+          cp -R frontend/dist "$PKG/public"
+          printf '{"commit":"%s"}\n' "$GITHUB_SHA" > "$PKG/build.json"
+          (cd "$PKG" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
+          (cd "$PKG" && zip -qr "$GITHUB_WORKSPACE/finance.zip" .)
+          ls -la "$PKG"; du -sh finance.zip
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: 025a1a03-4da4-4d4f-b639-d36fe934df28
+          tenant-id: ac144e41-8001-48f0-9e1c-170716ed06b6
+          subscription-id: 3b080e3a-fe88-4647-ae72-55b14d86ae3a
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.APP_NAME }}
+          package: finance.zip
+
+      # Healthy = /api/health answers 200 (the database is reachable) from THIS commit.
+      - name: Check the new version is live
+        run: |
+          set -u
+          for i in $(seq 1 40); do
+            BODY=$(curl -fsS -m 10 "$SITE_URL/api/health" 2>/dev/null || true)
+            if echo "$BODY" | grep -q "\"commit\":\"$GITHUB_SHA\"" && echo "$BODY" | grep -q '"ok":true'; then
+              echo "Live and healthy: $BODY"
+              exit 0
+            fi
+            echo "Waiting for the new version ($i/40): ${BODY:-no answer}"
+            sleep 15
+          done
+          echo "::error::$SITE_URL did not come up healthy on $GITHUB_SHA within 10 minutes. Check Log stream in the Azure portal."
+          exit 1
