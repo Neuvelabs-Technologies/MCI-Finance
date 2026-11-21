@@ -6,6 +6,7 @@ import { MAIL_KIND_LABEL, MAIL_STATUS_HELP, eventLabel } from '@/lib/emails';
 import { fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { EmailMessage } from '@/types';
+import { partyPath } from '@/lib/party';
 
 /** Problem events, including "refresh:hardbounced" etc. from a manual refresh. */
 const isProblemEvent = (type: string) => /bounce|blocked|spam|failed/.test(type);
@@ -35,9 +36,9 @@ export function EmailDetailDialog({ email, onOpenChange }: { email: EmailMessage
               items={[
                 ['To', email.to],
                 [
-                  'Customer',
+                  c?.type === 'vendor' ? 'Vendor' : 'Customer',
                   c ? (
-                    <Link to={`/admin/customers/${c._id}`} className="text-primary hover:underline">
+                    <Link to={partyPath({ id: c._id, type: c.type })} className="text-primary hover:underline">
                       {c.code} · {c.name}
                     </Link>
                   ) : undefined,

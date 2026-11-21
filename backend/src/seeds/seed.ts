@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { config } from '../config/env.js';
 import { connectDb, disconnectDb } from '../config/db.js';
 import { Admin } from '../models/Admin.js';
+import { Customer } from '../models/Customer.js';
 import { Entity } from '../models/Entity.js';
 import { MCI_ROSE, Settings } from '../models/Settings.js';
 import { logger } from '../utils/logger.js';
@@ -20,6 +21,9 @@ export async function ensureSeed(): Promise<void> {
     await settings.save();
     logger.info('[seed] email accent colour updated to MCI rose');
   }
+  // Records from before vendors existed (1.6.0) are customers. Stored explicitly so type filters find them.
+  const untyped = await Customer.updateMany({ type: { $exists: false } }, { $set: { type: 'customer' } });
+  if (untyped.modifiedCount) logger.info(`[seed] marked ${untyped.modifiedCount} existing records as customers`);
   if (!(await Admin.exists({}))) {
     await Admin.create({
       email: config.admin.email,

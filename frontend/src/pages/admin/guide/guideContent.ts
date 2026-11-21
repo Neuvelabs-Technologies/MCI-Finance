@@ -171,6 +171,35 @@ export function buildGuide(f: GuideFacts): Topic[] {
       ],
     },
     {
+      id: 'vendors',
+      group: 'tasks',
+      title: 'Customers and vendors',
+      summary: 'Two lists, one form: how vendors (suppliers) work.',
+      link: { to: '/admin/vendors', label: 'Open Vendors' },
+      blocks: [
+        {
+          type: 'p',
+          text: 'The sidebar has two lists: **Customers** (companies MCI invoices) and **Vendors** (suppliers who invoice MCI). Both receive a personal link to the same e-invoicing form; everything else — importing, sending, reminders, reviewing — works the same way on each list.',
+        },
+        {
+          type: 'list',
+          items: [
+            'Add or import vendors from the **Vendors** page. A file imported there creates vendors; one imported on Customers creates customers.',
+            'Codes are unique across both lists: a code already used by a customer can’t be given to a vendor (the import skips that row and says why).',
+            'Vendors get their own invite and reminder wording ("Dear Valued Supplier…"). Edit it under **Settings → Emails**, switching the Customers / Vendors toggle.',
+            'On the form, vendors see "Supplier code" instead of "Customer code". The questions and documents are the same.',
+            'Overview has a Customers / Vendors switch, and the Emails page can be filtered to either group. Excel exports include a **Type** column.',
+          ],
+        },
+        {
+          type: 'callout',
+          tone: 'tip',
+          title: 'Lost links',
+          text: 'Anyone already invited can ask for their link again from the home page (“Can’t find your link?”). It is sent only to the addresses on their record, at most once every 30 minutes, and only while we are still waiting on them.',
+        },
+      ],
+    },
+    {
       id: 'invites',
       group: 'tasks',
       title: 'Sending invites and reminders',

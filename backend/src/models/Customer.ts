@@ -3,6 +3,10 @@ import type { BuyerData, FileField } from '../utils/rules.js';
 
 export const CUSTOMER_STATUSES = ['new', 'invited', 'opened', 'submitted'] as const;
 export const REVIEW_STATUSES = ['pending', 'verified', 'needs_correction'] as const;
+/** Customers (MCI bills them) and vendors (they bill MCI) fill the same form; codes are unique across both. */
+export const PARTY_TYPES = ['customer', 'vendor'] as const;
+export type PartyType = (typeof PARTY_TYPES)[number];
+export const isPartyType = (v: unknown): v is PartyType => typeof v === 'string' && (PARTY_TYPES as readonly string[]).includes(v);
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number];
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
@@ -36,6 +40,7 @@ export type StoredBuyerData = Partial<Omit<BuyerData, 'entities' | 'tradeLicence
 };
 
 export interface ICustomer {
+  type: PartyType;
   code: string;
   name: string;
   emails: string[];
@@ -114,6 +119,7 @@ const DataSchema = new Schema(
 
 const CustomerSchema = new Schema<ICustomer>(
   {
+    type: { type: String, enum: PARTY_TYPES, default: 'customer', index: true },
     code: { type: String, required: true, unique: true, uppercase: true, trim: true },
     name: { type: String, required: true, trim: true },
     emails: [{ type: String, lowercase: true, trim: true }],

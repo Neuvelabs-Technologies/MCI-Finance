@@ -16,7 +16,7 @@ import { Settings, type ISettings } from '../models/Settings.js';
 import { ApiError } from '../utils/ApiError.js';
 import type { BuyerData, FileField } from '../utils/rules.js';
 import { UAE, requiredKeys, isFileField } from '../utils/rules.js';
-import { renderEmail, templatesFor } from './mailer.service.js';
+import { renderEmail, templatesFor, templatesOf } from './mailer.service.js';
 import { deleteCustomerFiles, writeCustomerFile } from './storage.service.js';
 
 export const DEMO_CODE_PREFIX = 'DEMO-';
@@ -105,6 +105,8 @@ interface Sample {
   vatGroup?: boolean;
   bank?: [name: string, code: string, swift: string];
   expiredLicence?: boolean;
+  /** Supplier to MCI rather than a customer. */
+  vendor?: boolean;
 }
 
 const BANKS: [string, string, string][] = [
@@ -138,6 +140,13 @@ const SAMPLES: Sample[] = [
   { name: 'Summit Photography Studio LLC', contact: 'Chris Mendes', scenario: 'not_sent' },
   { name: 'Golden Sands Hotels & Resorts LLC', contact: 'Fatima Zahra', scenario: 'not_sent' },
   { name: 'Arabian Ink Publishing LLC', contact: '', scenario: 'no_email' },
+  // Vendors (suppliers to MCI)
+  { name: 'Jumeirah Stage Hire LLC', contact: 'Ravi Shankar', scenario: 'verified', emirate: 'Dubai', authority: 'Dubai DET', vat: true, vendor: true },
+  { name: 'Emirates Badge & Lanyard FZE', contact: 'Sara Al Nuaimi', scenario: 'submitted', emirate: 'Sharjah', freeZone: true, authority: 'SAIF Zone', vat: true, vendor: true },
+  { name: 'Capital Interpreters LLC', contact: 'Hana Yousef', scenario: 'needs_correction', emirate: 'Abu Dhabi', authority: 'Abu Dhabi DED', vat: true, vendor: true },
+  { name: 'Skyline Shuttle Transport LLC', contact: 'Arjun Das', scenario: 'opened', emirate: 'Dubai', vendor: true },
+  { name: 'Mirage Furniture Rentals LLC', contact: 'Leila Mansour', scenario: 'sent', vendor: true },
+  { name: 'Nomad Coffee Carts LLC', contact: 'Ben Carter', scenario: 'not_sent', vendor: true },
 ];
 
 const slug = (name: string) =>
@@ -232,6 +241,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
     const emails = s.scenario === 'no_email' ? [] : [`accounts@${domain}`, ...(n % 3 === 0 ? [`finance@${domain}`] : [])];
     const created = now - (24 - (n % 4)) * DAY;
     const c = new Customer({
+      type: s.vendor ? 'vendor' : 'customer',
       code,
       name: s.name,
       emails,
@@ -242,7 +252,7 @@ export async function loadDemoData({ force = false } = {}): Promise<{ customers:
       status: 'new',
       emailLog: [],
     });
-    log(created, 'customer.imported', undefined, adminEmail, { file: 'customer-list-demo.xlsx' });
+    log(created, 'customer.imported', undefined, adminEmail, { file: s.vendor ? 'vendor-list-demo.xlsx' : 'customer-list-demo.xlsx' });
 
     const isInvited = !['not_sent', 'no_email'].includes(s.scenario);
     const invitedAt = created + (2 + (n % 3)) * DAY;
@@ -341,7 +351,7 @@ function demoMails(c: CustomerDoc, settings: ISettings, opened: boolean): Partia
   const out: Partial<IEmailMessage>[] = [];
   for (const entry of c.emailLog) {
     entry.batchId = crypto.randomUUID();
-    const { subject } = renderEmail({ ...templatesFor(entry.kind, settings.email), settings, customer: c });
+    const { subject } = renderEmail({ ...templatesFor(entry.kind, templatesOf(settings, c.type)), settings, customer: c });
     const at = new Date(entry.at);
     const later = (h: number) => new Date(at.getTime() + h * 36e5);
     for (const to of entry.to) {

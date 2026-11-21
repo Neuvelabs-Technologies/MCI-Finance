@@ -39,6 +39,51 @@ Regards,
 {{orgName}}
 {{contactEmail}}`;
 
+/** Vendor (supplier) invite and reminder: same placeholders, supplier wording. */
+const DEFAULT_VENDOR_SUBJECT = 'UAE Electronic Invoicing (e-Invoicing) – Supplier Information Required – {{code}}';
+const DEFAULT_VENDOR_BODY = `Dear Valued Supplier,
+
+We are writing to you regarding UAE Electronic Invoicing (e-Invoicing).
+
+To continue receiving and processing your invoices under the new requirements, kindly open the link below, review our company details carefully and complete the required supplier information form.
+
+Please ensure that the form is completed no later than {{dueDate}}.
+
+{{button}}
+
+If the button does not work, copy this link into your browser:
+{{link}}
+
+Regards,
+{{contactName}}
+{{orgName}}
+{{contactEmail}}`;
+
+const DEFAULT_VENDOR_REMINDER_SUBJECT = 'Reminder: UAE e-Invoicing supplier details required – {{code}}';
+const DEFAULT_VENDOR_REMINDER_BODY = `Dear Valued Supplier,
+
+This is a friendly reminder that we have not yet received your company's UAE e-invoicing details.
+
+Please complete the form by {{dueDate}} so that we can continue to process your invoices without interruption.
+
+{{button}}
+
+If the button does not work, copy this link into your browser:
+{{link}}
+
+Regards,
+{{contactName}}
+{{orgName}}
+{{contactEmail}}`;
+
+/** The editable invite/reminder templates (one set for customers, one for vendors). */
+export interface EmailTemplates {
+  inviteSubject: string;
+  inviteBody: string;
+  reminderSubject: string;
+  reminderBody: string;
+}
+
 export interface EmailSettings {
   inviteSubject: string;
   inviteBody: string;
@@ -62,6 +107,7 @@ export interface ISettings {
   linkValidityDays: number;
   autoReminderDays: string; // days before due date, e.g. "7,2"; empty = off
   email: EmailSettings;
+  vendorEmail: EmailTemplates;
 }
 
 export type SettingsDoc = HydratedDocument<ISettings>;
@@ -98,6 +144,12 @@ const SettingsSchema = new Schema<ISettings, SettingsModel>(
       reminderSubject: { type: String, default: DEFAULT_REMINDER_SUBJECT },
       reminderBody: { type: String, default: DEFAULT_REMINDER_BODY },
       sendConfirmation: { type: Boolean, default: true },
+    },
+    vendorEmail: {
+      inviteSubject: { type: String, default: DEFAULT_VENDOR_SUBJECT },
+      inviteBody: { type: String, default: DEFAULT_VENDOR_BODY },
+      reminderSubject: { type: String, default: DEFAULT_VENDOR_REMINDER_SUBJECT },
+      reminderBody: { type: String, default: DEFAULT_VENDOR_REMINDER_BODY },
     },
   },
   { timestamps: true }

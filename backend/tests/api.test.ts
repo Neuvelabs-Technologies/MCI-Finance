@@ -8,6 +8,8 @@ import type { Express } from 'express';
 import { createApp } from '../src/app.js';
 import { config } from '../src/config/env.js';
 import { Customer } from '../src/models/Customer.js';
+import { EmailMessage } from '../src/models/EmailMessage.js';
+import { resendLinks } from '../src/modules/public-form/public-form.service.js';
 import { ensureSeed } from '../src/seeds/seed.js';
 import { samplePdf } from '../src/services/demo.service.js';
 
@@ -117,6 +119,90 @@ describe('customers', () => {
     const r = await agent.post('/api/customers/import').attach('file', Buffer.from(csv), 'list.csv');
     expect(r.body).toMatchObject({ created: 1, updated: 1 });
     expect(r.body.errors).toHaveLength(1);
+  });
+});
+
+describe('vendors', () => {
+  it('keeps customers and vendors in separate lists and counts', async () => {
+    const agent = await signedIn();
+    await agent.post('/api/customers').send({ code: 'C1', name: 'Customer One' });
+    const v = await agent.post('/api/customers').send({ type: 'vendor', code: 'V1', name: 'Vendor One' });
+    expect(v.status).toBe(201);
+    expect(v.body.customer.type).toBe('vendor');
+
+    const vendors = await agent.get('/api/customers?type=vendor');
+    expect(vendors.body.items.map((x: { code: string }) => x.code)).toEqual(['V1']);
+    const customers = await agent.get('/api/customers?type=customer');
+    expect(customers.body.items.map((x: { code: string }) => x.code)).toEqual(['C1']);
+    expect((await agent.get('/api/customers')).body.total).toBe(2);
+
+    const stats = await agent.get('/api/customers/stats?type=vendor');
+    expect(stats.body.total).toBe(1);
+    expect(stats.body.types).toEqual({ customer: 1, vendor: 1 });
+  });
+
+  it('treats records saved before vendors existed as customers', async () => {
+    await Customer.collection.insertOne({ code: 'OLD1', name: 'Legacy', emails: [], status: 'new', reviewStatus: 'pending', data: {}, files: {}, fileHistory: [], emailLog: [] });
+    await ensureSeed();
+    const agent = await signedIn();
+    const r = await agent.get('/api/customers?type=customer');
+    expect(r.body.items.map((x: { code: string }) => x.code)).toEqual(['OLD1']);
+  });
+
+  it('rejects a code already used by the other type, on create and on import', async () => {
+    const agent = await signedIn();
+    await agent.post('/api/customers').send({ code: 'X1', name: 'Customer' });
+    const dup = await agent.post('/api/customers').send({ type: 'vendor', code: 'x1', name: 'Vendor' });
+    expect(dup.status).toBe(400);
+    expect(dup.body.error).toMatch(/customer/);
+
+    const csv = 'Code,Company name,Email\nX1,Clash,c@clash.example\nV9,Fresh Vendor,v@fresh.example\n';
+    const r = await agent.post('/api/customers/import').field('type', 'vendor').attach('file', Buffer.from(csv), 'vendors.csv');
+    expect(r.body).toMatchObject({ created: 1, updated: 0 });
+    expect(r.body.errors[0].reason).toMatch(/already exists as a customer/);
+    expect((await Customer.findOne({ code: 'V9' }))?.type).toBe('vendor');
+    expect((await Customer.findOne({ code: 'X1' }))?.name).toBe('Customer');
+  });
+
+  it('emails vendors with the vendor template', async () => {
+    const agent = await signedIn();
+    const v = await agent.post('/api/customers').send({ type: 'vendor', code: 'V2', name: 'Supplier', emails: 's@supplier.example' });
+    const c = await agent.post('/api/customers').send({ code: 'C2', name: 'Client', emails: 'c@client.example' });
+    await agent.post('/api/customers/send').send({ kind: 'invite', ids: [v.body.customer.id, c.body.customer.id] });
+    const vendorMail = await EmailMessage.findOne({ customer: v.body.customer.id });
+    const customerMail = await EmailMessage.findOne({ customer: c.body.customer.id });
+    expect(vendorMail?.subject).toMatch(/Supplier Information Required – V2/);
+    expect(customerMail?.subject).not.toMatch(/Supplier/);
+
+    const form = await request(app).get(`/api/public/form/${(await Customer.findById(v.body.customer.id))!.token}`);
+    expect(form.body.customer.type).toBe('vendor');
+  });
+});
+
+describe('resend link', () => {
+  it('answers the same for unknown and known addresses', async () => {
+    const unknown = await request(app).post('/api/public/resend-link').send({ email: 'nobody@nowhere.example' });
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ ok: true });
+    expect((await request(app).post('/api/public/resend-link').send({ email: 'not-an-email' })).status).toBe(400);
+  });
+
+  it('resends only to invited parties still pending, at most once per cooldown', async () => {
+    const agent = await signedIn();
+    const r = await agent.post('/api/customers').send({ type: 'vendor', code: 'V3', name: 'Supplier', emails: 'ap@supplier.example' });
+    const id = r.body.customer.id as string;
+    expect(await resendLinks('ap@supplier.example')).toBe(0); // never invited by finance yet
+
+    await agent.post('/api/customers/send').send({ kind: 'invite', ids: [id] });
+    expect(await resendLinks('AP@supplier.example')).toBe(0); // just emailed: cooldown
+
+    await Customer.updateOne({ _id: id }, { $set: { 'emailLog.0.at': new Date(Date.now() - 31 * 60 * 1000) } });
+    expect(await resendLinks('ap@supplier.example')).toBe(1);
+    const mails = await EmailMessage.find({ customer: id }).sort({ at: 1 });
+    expect(mails.at(-1)?.subject).toMatch(/Supplier/);
+
+    await Customer.updateOne({ _id: id }, { $set: { status: 'submitted', 'emailLog.$[].at': new Date(0) } });
+    expect(await resendLinks('ap@supplier.example')).toBe(0); // nothing left to fill in
   });
 });
 

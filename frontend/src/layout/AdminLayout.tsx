@@ -13,9 +13,11 @@ import {
   Moon,
   Settings,
   Sun,
+  Truck,
   Users,
   type LucideIcon,
 } from 'lucide-react';
+import { customersApi } from '@/api/customers.api';
 import { MciBrand, MciLogo } from '@/components/common/MciLogo';
 import { Button } from '@/components/ui/button';
 import { DialogTitle, Sheet, SheetContent } from '@/components/ui/dialog';
@@ -23,17 +25,26 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useAdmin } from '@/context/AdminContext';
 import { useTheme } from '@/context/ThemeContext';
 import { cn } from '@/lib/utils';
+import type { PartyType } from '@/types';
 
 interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
   end?: boolean;
+  /** Shows how many customers / vendors there are. */
+  count?: PartyType;
 }
 
-const MAIN: NavItem[] = [
-  { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/admin/customers', label: 'Customers', icon: Users },
+const MAIN: NavItem[] = [{ to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true }];
+
+/** Both get the same personal-link form; kept apart so each list stays manageable. */
+const PARTIES: NavItem[] = [
+  { to: '/admin/customers', label: 'Customers', icon: Users, count: 'customer' },
+  { to: '/admin/vendors', label: 'Vendors', icon: Truck, count: 'vendor' },
+];
+
+const MORE: NavItem[] = [
   { to: '/admin/emails', label: 'Emails', icon: Mail },
   { to: '/admin/entities', label: 'Our entities', icon: Building2 },
   { to: '/admin/activity', label: 'Activity', icon: Activity },
@@ -46,7 +57,7 @@ const navItemClass =
   'flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[0.9375rem] font-medium text-foreground transition-colors hover:bg-muted';
 const navItemActive = 'bg-primary-soft font-bold text-primary-soft-foreground hover:bg-primary-soft';
 
-function SideLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+function SideLink({ item, onNavigate, count }: { item: NavItem; onNavigate?: () => void; count?: number }) {
   const Icon = item.icon;
   return (
     <NavLink to={item.to} end={item.end} onClick={onNavigate} className={({ isActive }) => cn(navItemClass, isActive && navItemActive)}>
@@ -54,6 +65,9 @@ function SideLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
         <>
           <Icon size={20} aria-hidden strokeWidth={isActive ? 2.2 : 1.8} />
           <span className="flex-1 truncate">{item.label}</span>
+          {count !== undefined ? (
+            <span className={cn('rounded-full px-2 text-xs font-semibold tabular-nums', isActive ? 'bg-card/70' : 'bg-muted text-muted-foreground')}>{count}</span>
+          ) : null}
         </>
       )}
     </NavLink>
@@ -122,7 +136,18 @@ function UserMenu({ compact = false }: { compact?: boolean }) {
   );
 }
 
+const groupLabel = 'px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground';
+
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const { pathname } = useLocation();
+  const [counts, setCounts] = useState<Record<PartyType, number> | undefined>();
+  // Refreshed on every page change, so adding or deleting records shows up quickly
+  useEffect(() => {
+    customersApi
+      .stats()
+      .then((s) => setCounts(s.types))
+      .catch(() => {});
+  }, [pathname]);
   return (
     <nav className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-5" aria-label="Main">
       <Link to="/admin" onClick={onNavigate} className="rounded-xl px-2 py-1">
@@ -130,6 +155,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </Link>
       <div className="flex flex-col gap-1">
         {MAIN.map((item) => (
+          <SideLink key={item.to} item={item} onNavigate={onNavigate} />
+        ))}
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className={groupLabel}>Send links to</span>
+        {PARTIES.map((item) => (
+          <SideLink key={item.to} item={item} onNavigate={onNavigate} count={item.count && counts ? counts[item.count] : undefined} />
+        ))}
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className={groupLabel}>Manage</span>
+        {MORE.map((item) => (
           <SideLink key={item.to} item={item} onNavigate={onNavigate} />
         ))}
       </div>
@@ -153,7 +190,7 @@ function DemoBanner() {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-warning/25 bg-warning-soft px-4 py-2 text-sm text-foreground md:px-8">
       <FlaskConical size={16} className="shrink-0 text-warning" aria-hidden />
       <span>
-        <b>Demo data is loaded</b> — {demo.count} sample customers marked <span className="font-mono text-xs">DEMO-</span>. They are never emailed.
+        <b>Demo data is loaded</b> — {demo.count} sample customers and vendors marked <span className="font-mono text-xs">DEMO-</span>. They are never emailed.
       </span>
       <Link to="/admin/settings?tab=system" className="font-semibold text-warning underline-offset-2 hover:underline">
         Remove before go-live

@@ -5,13 +5,16 @@ import { FormField, Notice } from '@/components/common/Form';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
-import type { CustomerSummary } from '@/types';
+import { partyLabels } from '@/lib/party';
+import type { CustomerSummary, PartyType } from '@/types';
 
 interface Props {
+  /** Customer or vendor; when editing, the record's own type is used. */
+  type?: PartyType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Leave out to add a new customer. */
-  customer?: Pick<CustomerSummary, 'id' | 'code' | 'name' | 'emails' | 'contactName' | 'notes'>;
+  customer?: Pick<CustomerSummary, 'id' | 'type' | 'code' | 'name' | 'emails' | 'contactName' | 'notes'>;
   onSaved: (c: CustomerSummary) => void;
 }
 
@@ -23,7 +26,8 @@ const fromCustomer = (c?: Props['customer']): CustomerInput => ({
   notes: c?.notes ?? '',
 });
 
-export function CustomerModal({ open, onOpenChange, customer, onSaved }: Props) {
+export function CustomerModal({ type, open, onOpenChange, customer, onSaved }: Props) {
+  const L = partyLabels(customer?.type ?? type);
   const [f, setF] = useState<CustomerInput>(() => fromCustomer(customer));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -41,7 +45,7 @@ export function CustomerModal({ open, onOpenChange, customer, onSaved }: Props) 
     setBusy(true);
     setErr('');
     try {
-      const r = customer ? await customersApi.update(customer.id, f) : await customersApi.create(f);
+      const r = customer ? await customersApi.update(customer.id, f) : await customersApi.create({ ...f, type: L.type });
       onSaved(r.customer);
       onOpenChange(false);
       if (!customer) setF(fromCustomer());
@@ -56,9 +60,9 @@ export function CustomerModal({ open, onOpenChange, customer, onSaved }: Props) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{customer ? 'Edit customer' : 'Add a customer'}</DialogTitle>
+          <DialogTitle>{customer ? `Edit ${L.singular}` : `Add a ${L.singular}`}</DialogTitle>
           <DialogDescription>
-            {customer ? 'Changes apply to the customer record, not to what they submitted.' : 'A personal form link is created straight away. Nothing is emailed until you send the invite.'}
+            {customer ? `Changes apply to the ${L.singular} record, not to what they submitted.` : 'A personal form link is created straight away. Nothing is emailed until you send the invite.'}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -68,7 +72,12 @@ export function CustomerModal({ open, onOpenChange, customer, onSaved }: Props) 
             void save();
           }}
         >
-          <FormField label="Customer code" required htmlFor="cc" help="Your ERP account code. Shown in the email subject.">
+          <FormField
+            label={`${L.Singular} code`}
+            required
+            htmlFor="cc"
+            help={`Your ERP ${L.singular} code. Shown in the email subject. Must not be used by another customer or vendor.`}
+          >
             <Input id="cc" className="font-mono uppercase" value={f.code} onChange={set('code')} autoFocus={!customer} />
           </FormField>
           <FormField label="Company name" required htmlFor="nm" className="sm:col-span-2">
@@ -95,7 +104,7 @@ export function CustomerModal({ open, onOpenChange, customer, onSaved }: Props) 
             Cancel
           </Button>
           <Button onClick={save} disabled={busy}>
-            {busy ? 'Saving…' : customer ? 'Save changes' : 'Add customer'}
+            {busy ? 'Saving…' : customer ? 'Save changes' : `Add ${L.singular}`}
           </Button>
         </DialogFooter>
       </DialogContent>

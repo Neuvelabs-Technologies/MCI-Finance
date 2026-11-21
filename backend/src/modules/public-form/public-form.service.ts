@@ -1,8 +1,11 @@
 import { config } from '../../config/env.js';
 import { Customer, type CustomerDoc } from '../../models/Customer.js';
+import { Settings } from '../../models/Settings.js';
 import type { EntityDoc } from '../../models/Entity.js';
 import type { ISettings } from '../../models/Settings.js';
-import { deliver, emailShell, esc } from '../../services/mailer.service.js';
+import { deliver, emailShell, esc, sendCustomerEmail } from '../../services/mailer.service.js';
+import { audit } from '../../utils/audit.js';
+import { issueToken } from '../../utils/token.js';
 import { logger } from '../../utils/logger.js';
 import { FILE_FIELDS, type BuyerData, type FileField } from '../../utils/rules.js';
 
@@ -83,7 +86,7 @@ export async function notifySubmission(c: CustomerDoc, s: ISettings, d: BuyerDat
   if (c.demo) return; // demo customers never trigger real emails
   const rows = (
     [
-      ['Customer code', c.code],
+      [c.type === 'vendor' ? 'Vendor code' : 'Customer code', c.code],
       ['Company name', d.companyName],
       ['TRN', d.trn],
       ['TIN', d.tin],
@@ -118,9 +121,41 @@ export async function notifySubmission(c: CustomerDoc, s: ISettings, d: BuyerDat
       kind: 'notification',
       customer: c._id,
       to: config.notifyEmails.split(',').map((x) => x.trim()).filter(Boolean),
-      subject: `[e-Invoicing] ${first ? 'New submission' : 'Updated submission'}: ${c.code} – ${d.companyName}`,
+      subject: `[e-Invoicing] ${first ? 'New' : 'Updated'} ${c.type === 'vendor' ? 'vendor' : 'customer'} submission: ${c.code} – ${d.companyName}`,
       text: plainRows,
-      html: wrap(`<p>${first ? 'A customer has submitted' : 'A customer has updated'} their e-invoicing details.</p>${table}<p>Open the admin panel to review the documents.</p>`),
+      html: wrap(`<p>A ${c.type === 'vendor' ? 'vendor' : 'customer'} has ${first ? 'submitted' : 'updated'} their e-invoicing details.</p>${table}<p>Open the admin panel to review the documents.</p>`),
     });
   }
+}
+
+/** A party asks for its link again from the home page at most this often. */
+export const RESEND_COOLDOWN_MS = 30 * 60 * 1000;
+
+/**
+ * Email the form link again to every invited party (customer or vendor) registered with this address
+ * that we're still waiting on. Returns how many were sent; the caller never tells the visitor.
+ */
+export async function resendLinks(email: string): Promise<number> {
+  const addr = email.trim().toLowerCase();
+  const parties = await Customer.find({
+    emails: addr,
+    demo: { $ne: true },
+    invitedAt: { $ne: null },
+    $or: [{ status: { $ne: 'submitted' } }, { reviewStatus: 'needs_correction' }],
+  });
+  if (!parties.length) return 0;
+  const s = await Settings.get();
+  const now = Date.now();
+  let sent = 0;
+  for (const c of parties) {
+    const last = c.emailLog?.length ? c.emailLog[c.emailLog.length - 1] : undefined;
+    if (last?.ok && now - new Date(last.at).getTime() < RESEND_COOLDOWN_MS) continue;
+    if (!c.token || (c.tokenExpiresAt && c.tokenExpiresAt.getTime() < now)) issueToken(c, s.linkValidityDays);
+    const correction = c.status === 'submitted' && c.reviewStatus === 'needs_correction';
+    const r = await sendCustomerEmail(correction ? 'correction' : 'invite', c, s);
+    await c.save();
+    await audit(null, 'link.resend_requested', { customer: c._id, actor: 'public', details: { ok: r.ok } });
+    if (r.ok) sent++;
+  }
+  return sent;
 }

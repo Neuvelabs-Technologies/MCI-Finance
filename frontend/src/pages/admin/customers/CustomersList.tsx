@@ -16,6 +16,7 @@ import {
   Plus,
   Send,
   Trash2,
+  Truck,
   Upload,
   Users,
 } from 'lucide-react';
@@ -34,7 +35,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { useAdmin } from '@/context/AdminContext';
 import { copyText } from '@/lib/browser';
 import { fmtDateTime, plural, relativeTime } from '@/lib/format';
-import type { CustomerList, CustomerStats, CustomerSummary, EmailKind } from '@/types';
+import { partyLabels } from '@/lib/party';
+import type { CustomerList, CustomerStats, CustomerSummary, EmailKind, PartyType } from '@/types';
 import { CustomerModal } from './CustomerModal';
 import { ImportModal } from './ImportModal';
 
@@ -58,7 +60,9 @@ const ISSUE_OPTIONS = [
 
 type Confirm = { kind: EmailKind; ids?: string[]; all?: boolean; count: number } | null;
 
-export default function CustomersList() {
+/** The Customers and the Vendors pages: same list, filtered by type. */
+export default function CustomersList({ type = 'customer' }: { type?: PartyType }) {
+  const L = partyLabels(type);
   const nav = useNavigate();
   const { smtpConfigured } = useAdmin();
   const [params, setParams] = useSearchParams();
@@ -80,7 +84,7 @@ export default function CustomersList() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  const filter: CustomerFilter = useMemo(() => ({ status, review, issue, q }), [status, review, issue, q]);
+  const filter: CustomerFilter = useMemo(() => ({ type, status, review, issue, q }), [type, status, review, issue, q]);
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -99,7 +103,7 @@ export default function CustomersList() {
     setError(null);
     try {
       const [s, r] = await Promise.all([
-        customersApi.stats(),
+        customersApi.stats(type),
         customersApi.list({ ...filter, page, limit: pageSize, sort: sort.field, dir: sort.direction }),
       ]);
       setStats(s);
@@ -109,11 +113,11 @@ export default function CustomersList() {
     } finally {
       setLoading(false);
     }
-  }, [filter, page, pageSize, sort]);
+  }, [filter, page, pageSize, sort, type]);
 
   useEffect(() => {
-    document.title = 'Customers — MCI e-Invoicing';
-  }, []);
+    document.title = `${L.Plural} — MCI e-Invoicing`;
+  }, [L.Plural]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), q ? 300 : 0);
@@ -122,7 +126,7 @@ export default function CustomersList() {
 
   async function send(c: NonNullable<Confirm>) {
     try {
-      const r = await customersApi.send(c.kind, { ids: c.ids, allPending: c.all });
+      const r = await customersApi.send(c.kind, { ids: c.ids, allPending: c.all, type });
       const ok = r.results.filter((x) => x.ok).length;
       const failed = r.results.filter((x) => !x.ok);
       const what = c.kind === 'invite' ? 'invite' : 'reminder';
@@ -147,7 +151,7 @@ export default function CustomersList() {
   async function markSent(ids: string[]) {
     try {
       await customersApi.markSent(ids);
-      toast.success(`${plural(ids.length, 'customer')} marked as sent`);
+      toast.success(`${plural(ids.length, L.singular)} marked as sent`);
       setSel(new Set());
       void load();
     } catch (e) {
@@ -158,9 +162,9 @@ export default function CustomersList() {
   async function copyLink(id: string) {
     try {
       const r = await customersApi.get(id);
-      if (!r.customer.link) throw new Error('This customer has no link yet');
+      if (!r.customer.link) throw new Error(`This ${L.singular} has no link yet`);
       await copyText(r.customer.link);
-      toast.success('Form link copied', { description: 'Paste it into an email to the customer.' });
+      toast.success('Form link copied', { description: `Paste it into an email to the ${L.singular}.` });
     } catch (e) {
       toast.error(errorMessage(e));
     }
@@ -174,7 +178,7 @@ export default function CustomersList() {
     { key: 'code', label: 'Code', sortable: true, render: (c) => <span className="font-mono text-[13px]">{c.code}</span> },
     {
       key: 'name',
-      label: 'Customer',
+      label: L.Singular,
       sortable: true,
       className: 'max-w-[20rem] whitespace-normal',
       render: (c) => (
@@ -254,7 +258,7 @@ export default function CustomersList() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => nav(`/admin/customers/${c.id}`)}>
+              <DropdownMenuItem onSelect={() => nav(`${L.path}/${c.id}`)}>
                 <ExternalLink /> Open
               </DropdownMenuItem>
               {c.status !== 'submitted' ? (
@@ -277,15 +281,19 @@ export default function CustomersList() {
   return (
     <>
       <PageHeader
-        title="Customers"
-        subtitle="Everyone MCI invoices. Send each customer their form link, follow up, and review what they submit."
+        title={L.Plural}
+        subtitle={
+          type === 'vendor'
+            ? 'Suppliers who invoice MCI. Send each vendor their form link, follow up, and review what they submit.'
+            : 'Everyone MCI invoices. Send each customer their form link, follow up, and review what they submit.'
+        }
         actions={
           <>
             <Button variant="outline" onClick={() => setImporting(true)}>
               <Upload /> Import
             </Button>
             <Button variant="outline" asChild>
-              <a href={customersApi.exportUrl({ status, review, issue, q })} title={filtersActive ? 'Exports the customers matching the current filters' : undefined}>
+              <a href={customersApi.exportUrl(filter)} title={filtersActive ? `Exports the ${L.plural} matching the current filters` : undefined}>
                 <Download /> Export{filtersActive ? ' filtered' : ''}
               </a>
             </Button>
@@ -308,7 +316,7 @@ export default function CustomersList() {
               </DropdownMenuContent>
             </DropdownMenu>
             <Button onClick={() => setAdding(true)}>
-              <Plus /> Add customer
+              <Plus /> Add {L.singular}
             </Button>
           </>
         }
@@ -316,18 +324,18 @@ export default function CustomersList() {
 
       {!smtpConfigured ? (
         <Notice tone="warning" icon={Mail} title="Email sending isn't connected yet">
-          Invites and reminders are written to the server log instead of being sent. You can still copy each customer's link, send it from Outlook, and choose <b>Mark as sent manually</b>.
+          Invites and reminders are written to the server log instead of being sent. You can still copy each {L.singular}'s link, send it from Outlook, and choose <b>Mark as sent manually</b>.
         </Notice>
       ) : null}
 
       <KpiStrip>
-        <StatCard label="All customers" value={stats?.total ?? 0} icon={Users} loading={!stats} active={!filtersActive} onClick={() => setParams({}, { replace: true })} />
+        <StatCard label={`All ${L.plural}`} value={stats?.total ?? 0} icon={type === 'vendor' ? Truck : Users} loading={!stats} active={!filtersActive} onClick={() => setParams({}, { replace: true })} />
         <StatCard label="Not sent" value={st.new ?? 0} icon={Send} loading={!stats} active={status === 'new'} onClick={() => setFilter('status', 'new')} />
         <StatCard label="Awaiting reply" value={awaiting} icon={Hourglass} tone="info" loading={!stats} active={status === 'awaiting'} onClick={() => setFilter('status', 'awaiting')} />
         <StatCard
           label="Submitted"
           value={st.submitted ?? 0}
-          hint={stats?.total ? `${Math.round(((st.submitted ?? 0) / stats.total) * 100)}% of customers` : undefined}
+          hint={stats?.total ? `${Math.round(((st.submitted ?? 0) / stats.total) * 100)}% of ${L.plural}` : undefined}
           icon={CheckCircle2}
           tone="success"
           loading={!stats}
@@ -339,14 +347,14 @@ export default function CustomersList() {
       </KpiStrip>
 
       <DataTable
-        ariaLabel="Customers"
+        ariaLabel={L.Plural}
         columns={columns}
         items={res.items}
         rowKey={(c) => c.id}
         loading={loading}
         error={error}
         onRetry={load}
-        onRowClick={(c) => nav(`/admin/customers/${c.id}`)}
+        onRowClick={(c) => nav(`${L.path}/${c.id}`)}
         page={page}
         pageSize={pageSize}
         total={res.total}
@@ -401,11 +409,13 @@ export default function CustomersList() {
         }
         empty={
           stats?.total ? (
-            'No customers match these filters.'
+            `No ${L.plural} match these filters.`
           ) : (
             <div className="flex flex-col items-center gap-3">
-              <p className="text-lg font-bold text-foreground">No customers yet</p>
-              <p>Import your customer list from Excel, or add customers one by one.</p>
+              <p className="text-lg font-bold text-foreground">No {L.plural} yet</p>
+              <p>
+                Import your {L.singular} list from Excel, or add {L.plural} one by one.
+              </p>
               <div className="flex gap-2">
                 <Button onClick={() => setImporting(true)}>
                   <Upload /> Import from Excel
@@ -420,6 +430,7 @@ export default function CustomersList() {
       />
 
       <CustomerModal
+        type={type}
         open={adding}
         onOpenChange={setAdding}
         onSaved={(c) => {
@@ -427,28 +438,28 @@ export default function CustomersList() {
           void load();
         }}
       />
-      <ImportModal open={importing} onOpenChange={setImporting} onDone={() => void load()} />
+      <ImportModal type={type} open={importing} onOpenChange={setImporting} onDone={() => void load()} />
       <ConfirmDialog
         open={!!confirm}
         onOpenChange={(o) => !o && setConfirm(null)}
         title={confirm?.kind === 'invite' ? 'Send invites' : 'Send reminders'}
-        confirmLabel={confirm ? `Send to ${plural(confirm.count, 'customer')}` : 'Send'}
+        confirmLabel={confirm ? `Send to ${plural(confirm.count, L.singular)}` : 'Send'}
         onConfirm={() => (confirm ? send(confirm) : undefined)}
         description={
           confirm?.kind === 'invite'
-            ? `Emails the personal form link to ${plural(confirm?.count ?? 0, 'customer')}${confirm?.all ? ' who have not been sent an invite yet' : ''}.`
-            : `Emails a reminder to ${plural(confirm?.count ?? 0, 'customer')}. Anyone who has already submitted is skipped, unless you asked them to correct something: they get the correction email with your note instead.`
+            ? `Emails the personal form link to ${plural(confirm?.count ?? 0, L.singular)}${confirm?.all ? ' who have not been sent an invite yet' : ''}.`
+            : `Emails a reminder to ${plural(confirm?.count ?? 0, L.singular)}. Anyone who has already submitted is skipped, unless you asked them to correct something: they get the correction email with your note instead.`
         }
       >
         <p className="text-sm text-muted-foreground">
-          The wording comes from <b>Settings → Emails</b>. Expired links are renewed automatically before sending.
+          The wording comes from <b>Settings → Emails</b> ({L.plural} templates). Expired links are renewed automatically before sending.
           {!smtpConfigured ? ' Email sending is not connected, so the emails will only be written to the server log.' : ''}
         </p>
       </ConfirmDialog>
       <ConfirmDialog
         open={!!deleting}
         onOpenChange={(o) => !o && setDeleting(null)}
-        title={`Delete ${plural(deleting?.length ?? 0, 'customer')}?`}
+        title={`Delete ${plural(deleting?.length ?? 0, L.singular)}?`}
         confirmLabel="Delete permanently"
         confirmVariant="danger"
         description="This permanently removes their details, all their uploaded documents (including earlier versions) and their form links. It can’t be undone."
@@ -456,7 +467,7 @@ export default function CustomersList() {
           if (!deleting) return;
           try {
             const r = await customersApi.removeMany(deleting);
-            toast.success(`${plural(r.deleted, 'customer')} deleted`);
+            toast.success(`${plural(r.deleted, L.singular)} deleted`);
             setSel(new Set());
             void load();
           } catch (e) {
@@ -465,7 +476,7 @@ export default function CustomersList() {
           }
         }}
       >
-        <p className="text-sm text-muted-foreground">The Activity log keeps one line per customer (code and name) as a record of the deletion.</p>
+        <p className="text-sm text-muted-foreground">The Activity log keeps one line per {L.singular} (code and name) as a record of the deletion.</p>
       </ConfirmDialog>
     </>
   );

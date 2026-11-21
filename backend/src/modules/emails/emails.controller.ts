@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { QueryFilter } from 'mongoose';
+import { Customer, isPartyType } from '../../models/Customer.js';
 import { EmailMessage, MAIL_KINDS, MAIL_STATUSES, PROBLEM_STATUSES, type IEmailMessage, type MailKind, type MailStatus } from '../../models/EmailMessage.js';
 import { buildEmailExport } from '../../services/excel.service.js';
 import { mailProvider } from '../../services/mailer.service.js';
@@ -15,7 +16,7 @@ const STATUS_GROUPS: Record<string, MailStatus[]> = {
   waiting: ['queued'],
 };
 
-function buildFilter(req: Request): QueryFilter<IEmailMessage> {
+async function buildFilter(req: Request): Promise<QueryFilter<IEmailMessage>> {
   const filter: QueryFilter<IEmailMessage> = {};
   const status = str(req.query.status);
   if (STATUS_GROUPS[status]) filter.status = { $in: STATUS_GROUPS[status] };
@@ -23,6 +24,11 @@ function buildFilter(req: Request): QueryFilter<IEmailMessage> {
   const kind = str(req.query.kind);
   if ((MAIL_KINDS as readonly string[]).includes(kind)) filter.kind = kind as MailKind;
   if (isId(req.query.customer)) filter.customer = req.query.customer;
+  else if (isPartyType(req.query.type)) {
+    // Emails to customers only, or to vendors only (records from before 1.6.0 count as customers)
+    const ids = (await Customer.find({ type: req.query.type }).select('_id')).map((c) => c._id);
+    filter.customer = { $in: ids };
+  }
   const q = str(req.query.q).trim();
   if (q) {
     const re = new RegExp(escapeRegex(q), 'i');
@@ -32,11 +38,11 @@ function buildFilter(req: Request): QueryFilter<IEmailMessage> {
 }
 
 export async function list(req: Request, res: Response) {
-  const filter = buildFilter(req);
+  const filter = await buildFilter(req);
   const limit = Math.min(Number(req.query.limit) || 50, 500);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const [emails, total, byStatus] = await Promise.all([
-    EmailMessage.find(filter).sort({ at: -1 }).skip((page - 1) * limit).limit(limit).populate('customer', 'code name'),
+    EmailMessage.find(filter).sort({ at: -1 }).skip((page - 1) * limit).limit(limit).populate('customer', 'code name type'),
     EmailMessage.countDocuments(filter),
     EmailMessage.aggregate<{ _id: MailStatus; n: number }>([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
   ]);
@@ -45,7 +51,7 @@ export async function list(req: Request, res: Response) {
 }
 
 export async function exportXlsx(req: Request, res: Response) {
-  const emails = await EmailMessage.find(buildFilter(req)).sort({ at: -1 }).limit(20000).populate('customer', 'code name');
+  const emails = await EmailMessage.find(await buildFilter(req)).sort({ at: -1 }).limit(20000).populate('customer', 'code name type');
   const buf = await buildEmailExport(emails as Parameters<typeof buildEmailExport>[0]);
   await audit(req, 'export.emails', { details: { count: emails.length } });
   res.attachment(`e-invoicing-emails-${new Date().toISOString().slice(0, 10)}.xlsx`);

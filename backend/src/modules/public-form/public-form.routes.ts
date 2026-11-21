@@ -6,6 +6,7 @@ import { loadByToken } from './public-form.service.js';
 
 const readLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false });
 const writeLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
+const resendLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: true, legacyHeaders: false });
 
 /** Refuse uploads for unknown or expired links before any file is written to disk. */
 async function requireFormLink(req: Request, res: Response, next: NextFunction) {
@@ -32,6 +33,7 @@ const router = Router();
 
 router.get('/info', readLimiter, controller.info);
 router.get('/logo', readLimiter, controller.logo);
+router.post('/resend-link', resendLimiter, controller.resendLink);
 router.get('/form/:token', readLimiter, controller.getForm);
 router.post('/form/:token', writeLimiter, requireFormLink, formDocsUpload, controller.submitForm);
 

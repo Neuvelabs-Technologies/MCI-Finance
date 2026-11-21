@@ -1,4 +1,4 @@
-import type { AppSettings, EmailKind, EmailTemplates, RenderedEmail } from '@/types';
+import type { AppSettings, EmailKind, PartyType, RenderedEmail, TemplateTexts } from '@/types';
 import { http, type Ok } from './client';
 
 const BASE = '/api/settings';
@@ -13,6 +13,6 @@ export const settingsApi = {
   },
   removeLogo: () => http.del<Ok>(`${BASE}/logo`),
   testEmail: (to: string) => http.post<{ ok: true; smtpConfigured: boolean }>(`${BASE}/test-email`, { to }),
-  previewEmail: (kind: EmailKind, email: EmailTemplates, settings: Partial<AppSettings>) =>
-    http.post<RenderedEmail>(`${BASE}/preview-email`, { kind, email, settings }),
+  previewEmail: (kind: EmailKind, email: TemplateTexts, settings: Partial<AppSettings>, type: PartyType = 'customer') =>
+    http.post<RenderedEmail>(`${BASE}/preview-email`, { kind, email, settings, type }),
 };

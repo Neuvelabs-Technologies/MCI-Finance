@@ -11,6 +11,8 @@ export interface EmailQuery {
   status?: string;
   kind?: string;
   customer?: string;
+  /** "customer" or "vendor": emails to one group only. */
+  type?: string;
 }
 
 const qs = (query: EmailQuery) =>

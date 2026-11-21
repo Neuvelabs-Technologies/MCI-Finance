@@ -8,6 +8,7 @@ import type {
   EmailMessage,
   ImportResult,
   Overview,
+  PartyType,
   ReviewStatus,
   SendResult,
 } from '@/types';
@@ -17,6 +18,7 @@ import { http, type Ok } from './client';
 const BASE = '/api/customers';
 
 export interface CustomerInput {
+  type?: PartyType;
   code: string;
   name: string;
   emails: string;
@@ -25,7 +27,7 @@ export interface CustomerInput {
 }
 
 /** List filters, also used for the Excel export. */
-export type CustomerFilter = { status?: string; review?: string; issue?: string; q?: string };
+export type CustomerFilter = { type?: PartyType; status?: string; review?: string; issue?: string; q?: string };
 
 const qs = (params: Record<string, string | undefined>) =>
   new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1])).toString();
@@ -33,22 +35,23 @@ const qs = (params: Record<string, string | undefined>) =>
 export const customersApi = {
   list: (filter: CustomerFilter & { page: number; limit: number; sort?: string; dir?: 'asc' | 'desc' }) =>
     http.get<CustomerList>(`${BASE}?${qs({ ...filter, page: String(filter.page), limit: String(filter.limit) })}`),
-  stats: () => http.get<CustomerStats>(`${BASE}/stats`),
-  overview: () => http.get<Overview>(`${BASE}/overview`),
+  stats: (type?: PartyType) => http.get<CustomerStats>(`${BASE}/stats?${qs({ type })}`),
+  overview: (type?: PartyType) => http.get<Overview>(`${BASE}/overview?${qs({ type })}`),
   get: (id: string) => http.get<{ customer: CustomerDetail; logs: AuditLog[]; emails: EmailMessage[] }>(`${BASE}/${id}`),
   create: (body: CustomerInput) => http.post<{ customer: CustomerSummary }>(BASE, body),
   update: (id: string, body: CustomerInput) => http.put<{ customer: CustomerSummary }>(`${BASE}/${id}`, body),
   remove: (id: string) => http.del<Ok>(`${BASE}/${id}`),
   /** Delete several customers and their documents. */
   removeMany: (ids: string[]) => http.post<{ deleted: number }>(`${BASE}/delete`, { ids }),
-  send: (kind: EmailKind, opts: { ids?: string[]; allPending?: boolean }) =>
+  send: (kind: EmailKind, opts: { ids?: string[]; allPending?: boolean; type?: PartyType }) =>
     http.post<{ results: SendResult[]; smtpConfigured: boolean }>(`${BASE}/send`, { kind, ...opts }),
   markSent: (ids: string[]) => http.post<Ok>(`${BASE}/mark-sent`, { ids }),
   regenerateLink: (id: string) => http.post<{ link: string; tokenExpiresAt: string }>(`${BASE}/${id}/link`),
   review: (id: string, reviewStatus: ReviewStatus, reviewNote: string) =>
     http.patch<{ customer: CustomerSummary }>(`${BASE}/${id}/review`, { reviewStatus, reviewNote }),
-  import: (file: File) => {
+  import: (file: File, type: PartyType) => {
     const fd = new FormData();
+    fd.append('type', type);
     fd.append('file', file);
     return http.upload<ImportResult>(`${BASE}/import`, fd);
   },

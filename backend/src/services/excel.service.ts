@@ -59,8 +59,8 @@ export async function buildEmailExport(emails: EmailRow[]): Promise<Buffer> {
   ws.columns = [
     { header: 'Sent at', width: 20 },
     { header: 'To', width: 34 },
-    { header: 'Customer code', width: 16 },
-    { header: 'Customer', width: 30 },
+    { header: 'Code', width: 16 },
+    { header: 'Name', width: 30 },
     { header: 'Type', width: 16 },
     { header: 'Subject', width: 50 },
     { header: 'Status', width: 20 },
@@ -84,10 +84,11 @@ export async function buildExport(customers: CustomerDoc[], entities: EntityDoc[
   wb.creator = 'e-Invoicing details collection';
   wb.created = new Date();
 
-  const ws = wb.addWorksheet('Customers');
+  const ws = wb.addWorksheet('Details');
   const cols: Column[] = [
-    ['Customer code', (c) => c.code, 14],
-    ['Customer name (our records)', (c) => c.name, 30],
+    ['Type', (c) => (c.type === 'vendor' ? 'Vendor' : 'Customer'), 10],
+    ['Code', (c) => c.code, 14],
+    ['Name (our records)', (c) => c.name, 30],
     ['Status', (c) => STATUS_LABEL[c.status] ?? c.status, 11],
     ['Review', (c) => (c.status === 'submitted' ? REVIEW_LABEL[c.reviewStatus] : ''), 15],
     ['Submitted at', (c) => dt(c.submittedAt), 18],
@@ -142,11 +143,12 @@ export async function buildExport(customers: CustomerDoc[], entities: EntityDoc[
   }
   styleHeader(ws);
 
-  // Compact sheet for the ERP / ASP buyer master
-  const ps = wb.addWorksheet('PEPPOL buyer master');
+  // Compact sheet for the ERP / ASP buyer (customers) and supplier (vendors) master
+  const ps = wb.addWorksheet('PEPPOL master');
   ps.columns = [
-    { header: 'Customer code', width: 14 },
-    { header: 'Buyer legal name', width: 36 },
+    { header: 'Type', width: 10 },
+    { header: 'Code', width: 14 },
+    { header: 'Legal name', width: 36 },
     { header: 'Country', width: 18 },
     { header: 'TRN', width: 18 },
     { header: 'TIN', width: 13 },
@@ -164,9 +166,9 @@ export async function buildExport(customers: CustomerDoc[], entities: EntityDoc[
     const d = c.data ?? {};
     const peppol = d.peppolId ?? '';
     const [scheme, id] = peppol.includes(':') ? peppol.split(/:(.*)/s) : ['', peppol];
-    ps.addRow([c.code, d.companyName, d.country, d.trn, d.tin, scheme, id, d.legalIdType, d.tradeLicenceNo, d.licenceIssuingAuthority, d.address, d.city, d.emirate, d.invoiceEmail || d.email]);
+    ps.addRow([c.type === 'vendor' ? 'Vendor' : 'Customer', c.code, d.companyName, d.country, d.trn, d.tin, scheme, id, d.legalIdType, d.tradeLicenceNo, d.licenceIssuingAuthority, d.address, d.city, d.emirate, d.invoiceEmail || d.email]);
   }
-  for (const i of [4, 5, 7, 9]) ps.getColumn(i).numFmt = '@';
+  for (const i of [5, 6, 8, 10]) ps.getColumn(i).numFmt = '@';
   styleHeader(ps);
 
   return Buffer.from(await wb.xlsx.writeBuffer());

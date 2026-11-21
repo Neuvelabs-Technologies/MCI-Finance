@@ -186,6 +186,7 @@ export default function PublicForm() {
   if (state.status === 'error') return <LinkProblem kind={state.kind} settings={state.settings} />;
 
   const { customer: cust, entities } = state.res;
+  const vendor = cust.type === 'vendor';
   const s = state.res.settings;
   const isUae = norm.country === UAE;
   const errCount = Object.keys(v.errors).length;
@@ -516,7 +517,11 @@ export default function PublicForm() {
               number={num('entities')}
               done={sectionDone('entities')}
               title={`${s.orgName} companies you deal with`}
-              description={`Tick every ${s.orgName} company you buy from. Its e-invoicing details appear underneath — please check them and update your supplier records.`}
+              description={
+                vendor
+                  ? `Tick every ${s.orgName} company you supply or invoice. Its e-invoicing details appear underneath — please check them and update your customer records.`
+                  : `Tick every ${s.orgName} company you buy from. Its e-invoicing details appear underneath — please check them and update your supplier records.`
+              }
             >
               <div className="flex flex-col gap-3">
                 {entities.map((en) => {
@@ -583,7 +588,10 @@ export default function PublicForm() {
 
           <FormSection id="sec-company" icon={Building2} number={num('company')} done={sectionDone('company')} title="Company details" description="As shown on your trade licence or company registration.">
             <div className="grid gap-5 sm:grid-cols-2">
-              <FormField label="Customer code" help="Your account code with us — it’s in the subject line of our email.">
+              <FormField
+                label={vendor ? 'Supplier code' : 'Customer code'}
+                help={`Your ${vendor ? 'supplier' : 'account'} code with us — it’s in the subject line of our email.`}
+              >
                 <Input className="h-11 font-mono" value={cust.code} readOnly />
               </FormField>
               <FormField label={LABELS.country} required={req('country')} error={err('country')} htmlFor="country">

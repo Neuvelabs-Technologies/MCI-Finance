@@ -4,6 +4,8 @@ import type { BuyerData, FieldMessages, FileField } from '@/lib/rules';
 export type CustomerStatus = 'new' | 'invited' | 'opened' | 'submitted';
 export type ReviewStatus = 'pending' | 'verified' | 'needs_correction';
 export type EmailKind = 'invite' | 'reminder';
+/** Customers (MCI bills them) and vendors (they bill MCI) fill the same form. */
+export type PartyType = 'customer' | 'vendor';
 
 // ---------- public form ----------
 
@@ -49,6 +51,7 @@ export interface PublicFormResponse {
   settings: PublicSettings;
   entities: PublicEntity[];
   customer: {
+    type: PartyType;
     code: string;
     name: string;
     status: CustomerStatus;
@@ -125,6 +128,7 @@ export interface FileHistoryEntry extends StoredFile {
 
 export interface CustomerSummary {
   id: string;
+  type: PartyType;
   code: string;
   name: string;
   emails: string[];
@@ -163,7 +167,7 @@ export interface AuditLog {
   at: string;
   actor?: string;
   action: string;
-  customer?: { _id: string; code: string; name: string } | string | null;
+  customer?: { _id: string; code: string; name: string; type?: PartyType } | string | null;
   details?: {
     changed?: string[];
     filesReplaced?: string[];
@@ -196,7 +200,7 @@ export interface EmailMessage {
   _id: string;
   at: string;
   kind: MailKind;
-  customer?: { _id: string; code: string; name: string } | string | null;
+  customer?: { _id: string; code: string; name: string; type?: PartyType } | string | null;
   to: string;
   subject: string;
   provider: 'mailjet' | 'smtp' | 'none';
@@ -259,6 +263,8 @@ export interface CustomerStats {
   dueDate?: string;
   smtpConfigured: boolean;
   entityCount: number;
+  /** Number of customers and vendors (all of them, whatever type was asked for). */
+  types?: Record<PartyType, number>;
 }
 
 export interface SendResult {
@@ -295,11 +301,15 @@ export interface Entity {
   active: boolean;
 }
 
-export interface EmailTemplates {
+/** The editable invite/reminder texts (one set for customers, one for vendors). */
+export interface TemplateTexts {
   inviteSubject: string;
   inviteBody: string;
   reminderSubject: string;
   reminderBody: string;
+}
+
+export interface EmailTemplates extends TemplateTexts {
   sendConfirmation: boolean;
 }
 
@@ -317,6 +327,7 @@ export interface AppSettings {
   linkValidityDays: number;
   autoReminderDays: string;
   email: EmailTemplates;
+  vendorEmail: TemplateTexts;
 }
 
 export interface RenderedEmail {

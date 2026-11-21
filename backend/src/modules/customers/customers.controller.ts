@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import { AuditLog } from '../../models/AuditLog.js';
-import { Customer, type CustomerDoc, type StoredFile } from '../../models/Customer.js';
+import { Customer, isPartyType, type CustomerDoc, type PartyType, type StoredFile } from '../../models/Customer.js';
 import { EmailMessage } from '../../models/EmailMessage.js';
 import { Entity } from '../../models/Entity.js';
 import { Settings } from '../../models/Settings.js';
@@ -31,7 +31,18 @@ async function findOr404(id: unknown): Promise<CustomerDoc> {
   return c;
 }
 
+/** `?type=` / body `type`. Lists may omit it (= both); creating defaults to customer. */
+const partyType = (v: unknown): PartyType | undefined => (isPartyType(v) ? v : undefined);
+const label = (t: PartyType | undefined) => (t === 'vendor' ? 'vendor' : 'customer');
+
+/** Same check as the unique index, with a message saying which list already has the code. */
+async function assertCodeFree(code: string, exceptId?: unknown) {
+  const other = await Customer.findOne({ code: code.toUpperCase(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select('type');
+  if (other) throw badRequest(`Code ${code.toUpperCase()} is already used by a ${label(other.type)}`);
+}
+
 const listQuery = (req: Request): service.ListQuery => ({
+  type: partyType(req.query.type),
   status: str(req.query.status) || undefined,
   review: str(req.query.review) || undefined,
   q: str(req.query.q) || undefined,
@@ -39,12 +50,13 @@ const listQuery = (req: Request): service.ListQuery => ({
   demo: str(req.query.demo) || undefined,
 });
 
-export async function stats(_req: Request, res: Response) {
-  res.json(await service.getStats());
+export async function stats(req: Request, res: Response) {
+  const [stats, types] = await Promise.all([service.getStats(partyType(req.query.type)), service.typeCounts()]);
+  res.json({ ...stats, types });
 }
 
-export async function overview(_req: Request, res: Response) {
-  res.json(await service.getOverview());
+export async function overview(req: Request, res: Response) {
+  res.json(await service.getOverview(partyType(req.query.type)));
 }
 
 export async function list(req: Request, res: Response) {
@@ -67,12 +79,13 @@ export async function create(req: Request, res: Response) {
   if (!code || !name) throw badRequest('Code and company name are required');
   const emails = parseEmails(req.body?.emails);
   if (!allEmailsValid(emails)) throw badRequest('One or more email addresses are invalid');
-  if (await Customer.exists({ code: code.toUpperCase() })) throw badRequest('A customer with this code already exists');
+  await assertCodeFree(code);
+  const type = partyType(req.body?.type) ?? 'customer';
   const s = await Settings.get();
-  const c = new Customer({ code, name, emails, contactName: req.body?.contactName, notes: req.body?.notes });
+  const c = new Customer({ type, code, name, emails, contactName: req.body?.contactName, notes: req.body?.notes });
   issueToken(c, s.linkValidityDays);
   await c.save();
-  await audit(req, 'customer.created', { customer: c._id, details: { code: c.code } });
+  await audit(req, 'customer.created', { customer: c._id, details: { code: c.code, type } });
   res.status(201).json({ customer: service.toSummary(c) });
 }
 
@@ -85,9 +98,10 @@ export async function importTemplate(_req: Request, res: Response) {
 export async function importList(req: Request, res: Response) {
   if (!req.file) throw badRequest('Choose a CSV or Excel file');
   if (!/\.(csv|xlsx)$/i.test(req.file.originalname)) throw badRequest('Only .csv or .xlsx files are supported');
-  const result = await service.importCustomers(req.file.buffer, req.file.originalname);
+  const type = partyType(req.body?.type ?? req.query.type) ?? 'customer';
+  const result = await service.importCustomers(req.file.buffer, req.file.originalname, type);
   await audit(req, 'customer.imported', {
-    details: { file: req.file.originalname, created: result.created, updated: result.updated, errors: result.errors.length },
+    details: { type, file: req.file.originalname, created: result.created, updated: result.updated, errors: result.errors.length },
   });
   res.json(result);
 }
@@ -97,7 +111,7 @@ export async function send(req: Request, res: Response) {
   const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).filter(isId) : [];
   const allPending = !!req.body?.allPending;
   if (!allPending && !ids.length) throw badRequest('No customers selected');
-  const results = await service.sendEmails(kind, ids, allPending);
+  const results = await service.sendEmails(kind, ids, allPending, partyType(req.body?.type));
   if (!results.length) throw badRequest('No customers selected');
   await audit(req, `email.${kind}`, { details: { count: results.length, failed: results.filter((r) => !r.ok).length } });
   res.json({ results, smtpConfigured: mailConfigured() });
@@ -142,7 +156,7 @@ export async function update(req: Request, res: Response) {
   if (code !== undefined) {
     const nc = str(code).trim().toUpperCase();
     if (!nc) throw badRequest('Code is required');
-    if (nc !== c.code && (await Customer.exists({ code: nc }))) throw badRequest('Another customer already uses this code');
+    if (nc !== c.code) await assertCodeFree(nc, c._id);
     c.code = nc;
   }
   if (name !== undefined) {
@@ -201,7 +215,7 @@ export async function review(req: Request, res: Response) {
   const reviewStatus: unknown = req.body?.reviewStatus;
   const reviewNote = str(req.body?.reviewNote);
   if (!service.isReviewStatus(reviewStatus)) throw badRequest('Invalid review status');
-  if (reviewStatus === 'needs_correction' && !reviewNote.trim()) throw badRequest('Add a note telling the customer what to correct');
+  if (reviewStatus === 'needs_correction' && !reviewNote.trim()) throw badRequest(`Add a note telling the ${label(c.type)} what to correct`);
   c.reviewStatus = reviewStatus;
   c.reviewNote = reviewNote;
   await c.save();
@@ -234,8 +248,9 @@ export async function exportXlsx(req: Request, res: Response) {
   const filter = service.buildFilter(listQuery(req));
   const [customers, entities] = await Promise.all([Customer.find(filter).sort({ code: 1 }), Entity.find()]);
   const buf = await buildExport(customers, entities, formLink);
-  await audit(req, 'export.xlsx', { details: { count: customers.length } });
-  res.attachment(`e-invoicing-customers-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const type = partyType(req.query.type);
+  await audit(req, 'export.xlsx', { details: { count: customers.length, type } });
+  res.attachment(`e-invoicing-${type ? `${type}s` : 'all'}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   res.type(XLSX_MIME);
   res.send(buf);
 }

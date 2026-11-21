@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { ACTION_GROUPS, actorLabel, describeLog } from '@/lib/activity';
 import { fmtDateTime, relativeTime } from '@/lib/format';
 import type { AuditList, AuditLog } from '@/types';
+import { partyPath } from '@/lib/party';
 
 export default function Activity() {
   const [q, setQ] = useState('');
@@ -57,7 +58,7 @@ export default function Activity() {
       stopRowClick: true,
       render: (l) =>
         l.customer && typeof l.customer === 'object' ? (
-          <Link to={`/admin/customers/${l.customer._id}`} className="font-mono text-[13px] font-semibold text-primary hover:underline">
+          <Link to={partyPath({ id: l.customer._id, type: l.customer.type })} className="font-mono text-[13px] font-semibold text-primary hover:underline">
             {l.customer.code}
           </Link>
         ) : (

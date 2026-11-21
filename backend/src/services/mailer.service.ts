@@ -2,9 +2,9 @@ import crypto from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
 import type { Types } from 'mongoose';
 import { config } from '../config/env.js';
-import type { CustomerDoc, EmailLogEntry } from '../models/Customer.js';
+import type { CustomerDoc, EmailLogEntry, PartyType } from '../models/Customer.js';
 import { EmailMessage, type IEmailMessage, type MailKind, type MailStatus } from '../models/EmailMessage.js';
-import type { EmailSettings, ISettings } from '../models/Settings.js';
+import type { EmailTemplates, ISettings } from '../models/Settings.js';
 import { logger } from '../utils/logger.js';
 import { formLink } from '../utils/token.js';
 
@@ -156,7 +156,7 @@ interface RenderInput {
   subjectTpl: string;
   bodyTpl: string;
   settings: EmailBranding;
-  customer: { code: string; name: string; contactName?: string; token?: string | null; reviewNote?: string };
+  customer: { type?: PartyType; code: string; name: string; contactName?: string; token?: string | null; reviewNote?: string };
 }
 
 export function renderEmail({ subjectTpl, bodyTpl, settings, customer }: RenderInput): RenderedEmail {
@@ -172,6 +172,8 @@ export function renderEmail({ subjectTpl, bodyTpl, settings, customer }: RenderI
     contactName: settings.contactName,
     contactEmail: settings.contactEmail,
     reviewNote: customer.reviewNote ?? '',
+    partyType: customer.type === 'vendor' ? 'supplier' : 'customer',
+    partyTitle: customer.type === 'vendor' ? 'Supplier' : 'Customer',
   };
   const subject = fill(subjectTpl, vars);
   const text = fill(bodyTpl, { ...vars, button: `Open the form: ${link}` });
@@ -210,7 +212,7 @@ export async function sendMail(input: SendInput): Promise<SendOutcome> {
 
 /** Sent when finance asks a customer who has submitted to correct something. {{reviewNote}} is finance's note. */
 const CORRECTION_SUBJECT = 'Action needed: please update your UAE e-invoicing details – {{code}}';
-const CORRECTION_BODY = `Dear Valued Customer,
+const CORRECTION_BODY = `Dear Valued {{partyTitle}},
 
 Thank you for submitting your company's UAE e-invoicing details. On review, we need you to correct the following:
 
@@ -228,7 +230,11 @@ Regards,
 {{orgName}}
 {{contactEmail}}`;
 
-export function templatesFor(kind: EmailLogEntry['kind'], e: EmailSettings): { subjectTpl: string; bodyTpl: string } {
+/** The invite/reminder templates for a customer or a vendor. */
+export const templatesOf = (s: Pick<ISettings, 'email' | 'vendorEmail'>, type: PartyType | undefined): EmailTemplates =>
+  type === 'vendor' && s.vendorEmail ? s.vendorEmail : s.email;
+
+export function templatesFor(kind: EmailLogEntry['kind'], e: EmailTemplates): { subjectTpl: string; bodyTpl: string } {
   if (kind === 'correction') return { subjectTpl: CORRECTION_SUBJECT, bodyTpl: CORRECTION_BODY };
   return kind === 'reminder'
     ? { subjectTpl: e.reminderSubject, bodyTpl: e.reminderBody }
@@ -299,7 +305,7 @@ export async function deliver({ kind, customer, demo, ...mail }: DeliverInput): 
 
 /** Send an invite or reminder to a customer. Adds the outcome to customer.emailLog (caller saves). */
 export async function sendCustomerEmail(kind: EmailLogEntry['kind'], customer: CustomerDoc, settings: ISettings): Promise<EmailLogEntry> {
-  const rendered = renderEmail({ ...templatesFor(kind, settings.email), settings, customer });
+  const rendered = renderEmail({ ...templatesFor(kind, templatesOf(settings, customer.type)), settings, customer });
   const to = customer.emails ?? [];
   const entry: EmailLogEntry = { at: new Date(), kind, to, ok: false };
   try {

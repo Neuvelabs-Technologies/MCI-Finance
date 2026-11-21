@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0 — 2026-11-21
+
+### New
+- **Vendors.** Suppliers who invoice MCI now have their own **Vendors** list next to **Customers** in the sidebar (under "Send links to"), with a count on each. They fill the same form through the same kind of personal link. Add, import, invite, remind, review and export them just like customers.
+  - Vendors get their own invite and reminder wording ("Dear Valued Supplier… supplier information form"). Edit it in **Settings → Emails** with the new Customers / Vendors switch. The preview shows the selected set.
+  - Codes are unique across both lists. A code already used by a customer can't be given to a vendor, and the import skips that row and says why.
+  - On the form, vendors see "Supplier code", and the "companies you deal with" text is worded for suppliers. Finance's submission alert says whether a customer or a vendor submitted.
+  - **Overview** has a Customers / Vendors switch. The **Emails** page can be filtered to either group and marks vendor emails. Excel exports have a **Type** column, and the PEPPOL sheet covers both groups.
+  - Demo data includes six sample vendors.
+- **New home page** at https://finance-ae.wearemci.com. It explains what the site is for, how it works in three steps, and which documents to have ready. **Staff sign-in** is in the top right.
+- **"Can't find your link?"** on the home page. A customer or vendor who was already invited enters their email address and gets their link again, sent only to the addresses on their record. The answer is always the same, so it can't reveal who is registered. Requests are limited to 5 per 15 minutes per visitor and 1 email per company every 30 minutes, and only for companies we are still waiting on. Each request is recorded in Activity.
+
+### Changed
+- Existing records are marked as customers the first time the server starts. Nothing else needs to be migrated.
+- The correction email greets vendors as "Dear Valued Supplier". The new placeholder `{{partyType}}` gives "customer" or "supplier" in any template.
+
 ## 1.5.0 — 2026-11-20
 
 ### New

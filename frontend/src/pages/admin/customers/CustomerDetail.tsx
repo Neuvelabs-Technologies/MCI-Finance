@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Banknote,
@@ -41,6 +41,7 @@ import { copyText } from '@/lib/browser';
 import { fmtDate, fmtDateTime, fmtSize, relativeTime } from '@/lib/format';
 import { FILE_FIELDS, LABELS, LEGAL_ID_TYPES, UAE, type FileField } from '@/lib/rules';
 import { MAIL_KIND_LABEL } from '@/lib/emails';
+import { partyLabels } from '@/lib/party';
 import { cn } from '@/lib/utils';
 import type { AuditLog, CustomerDetail as Customer, EmailKind, EmailMessage, Entity, ReviewStatus } from '@/types';
 import { CustomerModal } from './CustomerModal';
@@ -55,6 +56,8 @@ const mono = (v: string | undefined) => (v ? <span className="font-mono text-[0.
 export default function CustomerDetail() {
   const { id = '' } = useParams();
   const nav = useNavigate();
+  // Until the record loads, the URL says whether this is a customer or a vendor
+  const urlType = useLocation().pathname.startsWith('/admin/vendors') ? 'vendor' : 'customer';
   const [d, setD] = useState<{ customer: Customer; logs: AuditLog[]; emails: EmailMessage[] } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -71,11 +74,12 @@ export default function CustomerDetail() {
       document.title = `${r.customer.code} — MCI e-Invoicing`;
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
-        toast.error('That customer no longer exists');
-        nav('/admin/customers', { replace: true });
+        const U = partyLabels(urlType);
+        toast.error(`That ${U.singular} no longer exists`);
+        nav(U.path, { replace: true });
       } else setError(e);
     }
-  }, [id, nav]);
+  }, [id, nav, urlType]);
 
   useEffect(() => {
     void load();
@@ -85,6 +89,7 @@ export default function CustomerDetail() {
   if (!d) return <LoadingState rows={5} />;
 
   const c = d.customer;
+  const L = partyLabels(c.type);
   const data = c.data ?? {};
   const submitted = c.status === 'submitted';
   const isUae = (data.country || UAE) === UAE;
@@ -115,7 +120,7 @@ export default function CustomerDetail() {
       await customersApi.review(c.id, status, status === 'needs_correction' ? note : '');
       toast.success(
         status === 'verified' ? 'Marked as verified' : status === 'needs_correction' ? 'Correction requested' : 'Review reset',
-        status === 'needs_correction' ? { description: 'Send a reminder so the customer sees your note.' } : undefined
+        status === 'needs_correction' ? { description: `Send a reminder so the ${L.singular} sees your note.` } : undefined
       );
       await load();
     } catch (e) {
@@ -130,7 +135,7 @@ export default function CustomerDetail() {
   return (
     <>
       <PageHeader
-        back={{ to: '/admin/customers', label: 'Customers' }}
+        back={{ to: L.path, label: L.Plural }}
         eyebrow={
           <span className="font-mono">
             {c.code} <span className="font-sans font-normal">· added {fmtDate(c.createdAt)}</span>
@@ -141,6 +146,7 @@ export default function CustomerDetail() {
           <>
             <StatusChip status={c.status} />
             {submitted ? <ReviewChip review={c.reviewStatus} /> : null}
+            <Badge variant={c.type === 'vendor' ? 'info' : 'neutral'}>{L.Singular}</Badge>
             {c.demo ? <Badge variant="warning">Demo record</Badge> : null}
           </>
         }
@@ -152,7 +158,7 @@ export default function CustomerDetail() {
               </Button>
             ) : c.reviewStatus === 'needs_correction' ? (
               <Button onClick={() => setDialog('reminder')}>
-                <Mail /> Email customer to correct
+                <Mail /> Email {L.singular} to correct
               </Button>
             ) : null}
             <Button variant="outline" onClick={() => setDialog('edit')}>
@@ -177,7 +183,7 @@ export default function CustomerDetail() {
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <a href={c.link} target="_blank" rel="noreferrer">
-                        <ExternalLink /> Open as customer
+                        <ExternalLink /> Open their form
                       </a>
                     </DropdownMenuItem>
                   </>
@@ -187,7 +193,7 @@ export default function CustomerDetail() {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={() => setDialog('delete')}>
-                  <Trash2 /> Delete customer
+                  <Trash2 /> Delete {L.singular}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -196,7 +202,7 @@ export default function CustomerDetail() {
       />
 
       {submitted && c.reviewStatus === 'needs_correction' && c.reviewNote ? (
-        <Notice tone="danger" icon={RotateCcw} title="Waiting for the customer to correct their submission">
+        <Notice tone="danger" icon={RotateCcw} title={`Waiting for the ${L.singular} to correct their submission`}>
           {c.reviewNote}
         </Notice>
       ) : null}
@@ -307,7 +313,7 @@ export default function CustomerDetail() {
                 <Button disabled={busy || c.reviewStatus === 'verified'} onClick={() => void review('verified')}>
                   <Check /> {c.reviewStatus === 'verified' ? 'Verified' : 'Mark as verified'}
                 </Button>
-                <FormField label="Ask the customer to correct something" htmlFor="rn" help="They see this note at the top of their form.">
+                <FormField label={`Ask the ${L.singular} to correct something`} htmlFor="rn" help="They see this note at the top of their form.">
                   <Textarea
                     id="rn"
                     rows={3}
@@ -339,7 +345,7 @@ export default function CustomerDetail() {
                     <>Valid until {fmtDate(c.tokenExpiresAt)}</>
                   )
                 ) : (
-                  'Personal link for this customer only'
+                  `Personal link for this ${L.singular} only`
                 )}
               </CardDescription>
             </CardHeader>
@@ -366,7 +372,7 @@ export default function CustomerDetail() {
                 {c.link ? (
                   <Button variant="outline" size="sm" asChild>
                     <a href={c.link} target="_blank" rel="noreferrer">
-                      <ExternalLink /> Open as customer
+                      <ExternalLink /> Open their form
                     </a>
                   </Button>
                 ) : null}
@@ -379,7 +385,7 @@ export default function CustomerDetail() {
 
           <Card size="sm">
             <CardHeader>
-              <CardTitle className="text-base">Customer record</CardTitle>
+              <CardTitle className="text-base">{L.Singular} record</CardTitle>
             </CardHeader>
             <CardContent>
               <InfoGrid
@@ -405,14 +411,14 @@ export default function CustomerDetail() {
         onOpenChange={(o) => setDialog(o ? 'edit' : null)}
         customer={c}
         onSaved={() => {
-          toast.success('Customer updated');
+          toast.success(`${L.Singular} updated`);
           void load();
         }}
       />
       <ConfirmDialog
         open={dialog === 'invite' || dialog === 'reminder'}
         onOpenChange={(o) => !o && setDialog(null)}
-        title={dialog === 'invite' ? 'Send the invite?' : correction ? 'Ask the customer to correct their details?' : 'Send a reminder?'}
+        title={dialog === 'invite' ? 'Send the invite?' : correction ? `Ask the ${L.singular} to correct their details?` : 'Send a reminder?'}
         description={
           correction
             ? `Emails ${c.emails?.join(', ')} your note — “${c.reviewNote ?? ''}” — with their form link, so they can correct it and submit again.`
@@ -442,7 +448,7 @@ export default function CustomerDetail() {
       <ConfirmDialog
         open={dialog === 'delete'}
         onOpenChange={(o) => !o && setDialog(null)}
-        title="Delete this customer?"
+        title={`Delete this ${L.singular}?`}
         confirmVariant="danger"
         confirmLabel="Delete permanently"
         description={
@@ -454,7 +460,7 @@ export default function CustomerDetail() {
           try {
             await customersApi.remove(c.id);
             toast.success(`${c.code} deleted`);
-            nav('/admin/customers', { replace: true });
+            nav(L.path, { replace: true });
           } catch (e) {
             toast.error(errorMessage(e));
             throw e;
@@ -607,7 +613,7 @@ function EmailsCard({ customerId, emails }: { customerId: string; emails: EmailM
     <Card size="sm">
       <CardHeader>
         <CardTitle className="text-base">Emails</CardTitle>
-        <CardDescription>Whether each email reached the customer. Click one for details.</CardDescription>
+        <CardDescription>Whether each email reached them. Click one for details.</CardDescription>
         {emails.length > shown.length ? (
           <CardAction>
             <Button variant="ghost" size="sm" asChild>

@@ -20,7 +20,7 @@ export async function list(req: Request, res: Response) {
   const limit = Math.min(Number(req.query.limit) || 50, 500);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const [logs, total] = await Promise.all([
-    AuditLog.find(filter).sort({ at: -1 }).skip((page - 1) * limit).limit(limit).populate('customer', 'code name'),
+    AuditLog.find(filter).sort({ at: -1 }).skip((page - 1) * limit).limit(limit).populate('customer', 'code name type'),
     AuditLog.countDocuments(filter),
   ]);
   res.json({ logs, total, page, limit });

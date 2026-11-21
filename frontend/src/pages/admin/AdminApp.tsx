@@ -54,8 +54,11 @@ export default function AdminApp() {
       <AdminLayout>
         <Routes>
           <Route index element={<Overview />} />
-          <Route path="customers" element={<CustomersList />} />
+          {/* key: switching between the two lists starts fresh (filters, selection, page) */}
+          <Route path="customers" element={<CustomersList key="customer" type="customer" />} />
           <Route path="customers/:id" element={<CustomerDetail />} />
+          <Route path="vendors" element={<CustomersList key="vendor" type="vendor" />} />
+          <Route path="vendors/:id" element={<CustomerDetail />} />
           <Route path="emails" element={<Emails />} />
           <Route path="entities" element={<Entities />} />
           <Route path="activity" element={<Activity />} />

@@ -7,6 +7,7 @@ import {
   type CustomerStatus,
   type EmailLogEntry,
   type ICustomer,
+  type PartyType,
   type ReviewStatus,
 } from '../../models/Customer.js';
 import { AuditLog } from '../../models/AuditLog.js';
@@ -21,6 +22,7 @@ import { issueToken } from '../../utils/token.js';
 export function toSummary(c: CustomerDoc) {
   return {
     id: c._id,
+    type: c.type ?? 'customer',
     code: c.code,
     name: c.name,
     emails: c.emails,
@@ -44,6 +46,7 @@ export function toSummary(c: CustomerDoc) {
 }
 
 export interface ListQuery {
+  type?: PartyType;
   status?: string;
   review?: string;
   q?: string;
@@ -58,6 +61,7 @@ const LAST_EMAIL_FAILED = { $expr: { $eq: [{ $arrayElemAt: ['$emailLog.ok', -1] 
 /** Turn the list/export query string into a MongoDB filter. */
 export function buildFilter(q: ListQuery): QueryFilter<ICustomer> {
   const filter: QueryFilter<ICustomer> = {};
+  if (q.type) filter.type = q.type;
   if (q.status === 'pending') filter.status = { $ne: 'submitted' };
   else if (q.status === 'awaiting') filter.status = { $in: ['invited', 'opened'] };
   else if (isCustomerStatus(q.status)) filter.status = q.status;
@@ -79,10 +83,22 @@ export function buildFilter(q: ListQuery): QueryFilter<ICustomer> {
   return filter;
 }
 
-export async function getStats() {
+/** Limit a query to one party type; no type = customers and vendors together. */
+const ofType = (type?: PartyType): QueryFilter<ICustomer> => (type ? { type } : {});
+
+/** How many customers and vendors there are (for the sidebar). */
+export async function typeCounts(): Promise<Record<PartyType, number>> {
+  const rows = await Customer.aggregate<{ _id: PartyType | null; n: number }>([{ $group: { _id: '$type', n: { $sum: 1 } } }]);
+  const out: Record<PartyType, number> = { customer: 0, vendor: 0 };
+  for (const r of rows) out[r._id === 'vendor' ? 'vendor' : 'customer'] += r.n;
+  return out;
+}
+
+export async function getStats(type?: PartyType) {
+  const match = ofType(type);
   const [byStatus, byReview, s, entityCount] = await Promise.all([
-    Customer.aggregate<{ _id: string; n: number }>([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
-    Customer.aggregate<{ _id: string; n: number }>([{ $match: { status: 'submitted' } }, { $group: { _id: '$reviewStatus', n: { $sum: 1 } } }]),
+    Customer.aggregate<{ _id: string; n: number }>([{ $match: match }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+    Customer.aggregate<{ _id: string; n: number }>([{ $match: { ...match, status: 'submitted' } }, { $group: { _id: '$reviewStatus', n: { $sum: 1 } } }]),
     Settings.get(),
     Entity.countDocuments({ active: true }),
   ]);
@@ -93,23 +109,24 @@ export async function getStats() {
 }
 
 /** Everything the Overview dashboard shows, in one request. */
-export async function getOverview() {
+export async function getOverview(type?: PartyType) {
   const now = new Date();
   const pendingStatus = { $ne: 'submitted' as const };
+  const t = ofType(type);
   const [stats, s, invited, opened, toReview, recentSubmissions, counts, activity] = await Promise.all([
-    getStats(),
+    getStats(type),
     Settings.get(),
-    Customer.countDocuments({ invitedAt: { $ne: null } }),
-    Customer.countDocuments({ openedAt: { $ne: null } }),
-    Customer.find({ status: 'submitted', reviewStatus: 'pending' }).sort({ submittedAt: 1 }).limit(6),
-    Customer.find({ status: 'submitted' }).sort({ submittedAt: -1 }).limit(6),
+    Customer.countDocuments({ ...t, invitedAt: { $ne: null } }),
+    Customer.countDocuments({ ...t, openedAt: { $ne: null } }),
+    Customer.find({ ...t, status: 'submitted', reviewStatus: 'pending' }).sort({ submittedAt: 1 }).limit(6),
+    Customer.find({ ...t, status: 'submitted' }).sort({ submittedAt: -1 }).limit(6),
     Promise.all([
-      Customer.countDocuments({ status: 'submitted', reviewStatus: 'needs_correction' }),
-      Customer.countDocuments({ $or: WAITING_ON_CUSTOMER, ...LAST_EMAIL_FAILED }),
-      Customer.countDocuments({ status: pendingStatus, tokenExpiresAt: { $lt: now } }),
-      Customer.countDocuments({ status: pendingStatus, emails: { $size: 0 } }),
+      Customer.countDocuments({ ...t, status: 'submitted', reviewStatus: 'needs_correction' }),
+      Customer.countDocuments({ ...t, $or: WAITING_ON_CUSTOMER, ...LAST_EMAIL_FAILED }),
+      Customer.countDocuments({ ...t, status: pendingStatus, tokenExpiresAt: { $lt: now } }),
+      Customer.countDocuments({ ...t, status: pendingStatus, emails: { $size: 0 } }),
     ]),
-    AuditLog.find().sort({ at: -1 }).limit(8).populate('customer', 'code name'),
+    AuditLog.find().sort({ at: -1 }).limit(8).populate('customer', 'code name type'),
   ]);
   const [corrections, emailFailures, expiredLinks, noEmail] = counts;
   const submitted = stats.status.submitted ?? 0;
@@ -134,8 +151,8 @@ export async function getOverview() {
   };
 }
 
-/** Add new customers and update existing ones (matched by code) from an uploaded list. */
-export async function importCustomers(buffer: Buffer, filename: string) {
+/** Add new customers/vendors and update existing ones (matched by code) from an uploaded list. */
+export async function importCustomers(buffer: Buffer, filename: string, type: PartyType = 'customer') {
   const { items, errors } = await parseCustomerImport(buffer, filename);
   const s = await Settings.get();
   let created = 0;
@@ -149,6 +166,11 @@ export async function importCustomers(buffer: Buffer, filename: string) {
     }
     seen.add(it.code);
     const existing = await Customer.findOne({ code: it.code });
+    if (existing && (existing.type ?? 'customer') !== type) {
+      // Codes are unique across customers and vendors: never turn one into the other by import
+      allErrors.push({ row: it.row, reason: `Code ${it.code} already exists as a ${existing.type ?? 'customer'}` });
+      continue;
+    }
     if (existing) {
       existing.name = it.name;
       if (it.emails.length) existing.emails = it.emails;
@@ -156,7 +178,7 @@ export async function importCustomers(buffer: Buffer, filename: string) {
       await existing.save();
       updated++;
     } else {
-      const c = new Customer({ code: it.code, name: it.name, emails: it.emails, contactName: it.contactName });
+      const c = new Customer({ type, code: it.code, name: it.name, emails: it.emails, contactName: it.contactName });
       issueToken(c, s.linkValidityDays);
       await c.save();
       created++;
@@ -172,8 +194,9 @@ export interface SendResult {
   error?: string;
 }
 
-async function pendingIds(kind: EmailLogEntry['kind']): Promise<Types.ObjectId[]> {
+async function pendingIds(kind: EmailLogEntry['kind'], type?: PartyType): Promise<Types.ObjectId[]> {
   const pending = await Customer.find({
+    ...ofType(type),
     status: { $ne: 'submitted' },
     ...(kind === 'reminder' ? { invitedAt: { $ne: null } } : { status: 'new' }),
   }).select('_id');
@@ -192,8 +215,13 @@ function markEmailed(c: CustomerDoc, kind: EmailLogEntry['kind']): void {
 }
 
 /** Email invites or reminders. Pass `allPending` to target everyone still waiting instead of `ids`. */
-export async function sendEmails(kind: 'invite' | 'reminder', ids: (Types.ObjectId | string)[], allPending: boolean): Promise<SendResult[]> {
-  const targets = allPending ? await pendingIds(kind) : ids;
+export async function sendEmails(
+  kind: 'invite' | 'reminder',
+  ids: (Types.ObjectId | string)[],
+  allPending: boolean,
+  type?: PartyType
+): Promise<SendResult[]> {
+  const targets = allPending ? await pendingIds(kind, type) : ids;
   const s = await Settings.get();
   const results: SendResult[] = [];
   // One at a time, so a large batch doesn't overwhelm the email provider.

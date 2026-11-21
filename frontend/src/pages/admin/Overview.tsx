@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight,
   CalendarClock,
@@ -13,11 +13,13 @@ import {
   MailX,
   RotateCcw,
   Send,
+  Truck,
   UserX,
   Users,
 } from 'lucide-react';
 import { customersApi } from '@/api/customers.api';
 import { PageHeader } from '@/components/common/PageHeader';
+import { PartyTypeSwitch } from '@/components/common/PartyTypeSwitch';
 import { KpiStrip, StatCard } from '@/components/common/StatCard';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { ReviewChip } from '@/components/common/StatusChip';
@@ -27,6 +29,7 @@ import { Progress } from '@/components/ui/controls';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/menu';
 import { actorLabel, describeLog } from '@/lib/activity';
 import { fmtDate, fmtDateTime, relativeTime } from '@/lib/format';
+import { partyLabels, partyPath, type PartyLabels } from '@/lib/party';
 import { cn } from '@/lib/utils';
 import type { Overview as OverviewData } from '@/types';
 
@@ -34,17 +37,21 @@ const pct = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
 
 export default function Overview() {
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const type = params.get('type') === 'vendor' ? 'vendor' : 'customer';
+  const L = partyLabels(type);
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const load = useCallback(async () => {
     setError(null);
+    setData(null);
     try {
-      setData(await customersApi.overview());
+      setData(await customersApi.overview(type));
     } catch (e) {
       setError(e);
     }
-  }, []);
+  }, [type]);
 
   useEffect(() => {
     document.title = 'Overview — MCI e-Invoicing';
@@ -54,35 +61,37 @@ export default function Overview() {
   if (error) return <ErrorState error={error} onRetry={load} />;
 
   const st = data?.status ?? {};
-  const go = (query: string) => nav(`/admin/customers?${query}`);
+  const go = (query: string) => nav(`${L.path}?${query}`);
+  const Icon = type === 'vendor' ? Truck : Users;
 
   return (
     <>
       <PageHeader
         title="Overview"
-        subtitle="How far MCI is in collecting UAE e-invoicing details from its customers."
+        subtitle={`How far MCI is in collecting UAE e-invoicing details from its ${L.plural}.`}
         actions={
           <>
+            <PartyTypeSwitch value={type} onChange={(t) => setParams(t === 'vendor' ? { type: t } : {}, { replace: true })} />
             <Button variant="outline" asChild>
-              <a href={customersApi.exportUrl({})}>
+              <a href={customersApi.exportUrl({ type })}>
                 <Download />
                 Export Excel
               </a>
             </Button>
             <Button asChild>
-              <Link to="/admin/customers">
-                <Users />
-                Customers
+              <Link to={L.path}>
+                <Icon />
+                {L.Plural}
               </Link>
             </Button>
           </>
         }
       />
 
-      {data && <SetupChecklist setup={data.setup} />}
+      {data && <SetupChecklist setup={data.setup} L={L} />}
 
       <KpiStrip>
-        <StatCard label="Customers" value={data?.total ?? 0} icon={Users} loading={!data} onClick={() => go('')} />
+        <StatCard label={L.Plural} value={data?.total ?? 0} icon={Icon} loading={!data} onClick={() => go('')} />
         <StatCard label="Not sent" value={st.new ?? 0} icon={Send} loading={!data} hint="Invite not emailed yet" onClick={() => go('status=new')} />
         <StatCard
           label="Awaiting reply"
@@ -99,7 +108,7 @@ export default function Overview() {
           icon={CheckCircle2}
           tone="success"
           loading={!data}
-          hint={data ? `${pct(st.submitted ?? 0, data.total)}% of customers` : undefined}
+          hint={data ? `${pct(st.submitted ?? 0, data.total)}% of ${L.plural}` : undefined}
           onClick={() => go('status=submitted')}
         />
         <StatCard label="To review" value={data?.review.pending ?? 0} icon={ClipboardCheck} tone="warning" loading={!data} onClick={() => go('review=pending')} />
@@ -111,11 +120,11 @@ export default function Overview() {
       ) : (
         <>
           <div className="grid gap-6 lg:grid-cols-3">
-            <ProgressCard data={data} />
-            <AttentionCard data={data} />
+            <ProgressCard data={data} L={L} />
+            <AttentionCard data={data} L={L} />
           </div>
           <div className="grid gap-6 lg:grid-cols-3">
-            <ReviewQueue data={data} />
+            <ReviewQueue data={data} L={L} />
             <RecentActivity data={data} />
           </div>
         </>
@@ -126,11 +135,11 @@ export default function Overview() {
 
 // ---------------- Progress: hero figure + funnel ----------------
 
-function ProgressCard({ data }: { data: OverviewData }) {
+function ProgressCard({ data, L }: { data: OverviewData; L: PartyLabels }) {
   const { funnel, total } = data;
   const done = pct(funnel.submitted, total);
   const stages: { label: string; value: number; hint: string }[] = [
-    { label: 'Customers', value: funnel.total, hint: 'On the list' },
+    { label: L.Plural, value: funnel.total, hint: 'On the list' },
     { label: 'Invited', value: funnel.invited, hint: 'Invite email sent (or marked as sent)' },
     { label: 'Opened the form', value: funnel.opened, hint: 'Opened their link at least once' },
     { label: 'Submitted', value: funnel.submitted, hint: 'Sent their details and documents' },
@@ -140,7 +149,7 @@ function ProgressCard({ data }: { data: OverviewData }) {
     <Card className="lg:col-span-2">
       <CardHeader>
         <CardTitle>Response progress</CardTitle>
-        <CardDescription>Each bar is the number of customers who reached that step.</CardDescription>
+        <CardDescription>Each bar is the number of {L.plural} who reached that step.</CardDescription>
         <CardAction>
           <DueChip dueDate={data.dueDate} daysLeft={data.daysLeft} />
         </CardAction>
@@ -150,13 +159,13 @@ function ProgressCard({ data }: { data: OverviewData }) {
           <div>
             <p className="text-5xl leading-none font-bold">{done}%</p>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              {funnel.submitted} of {total} customers have submitted
+              {funnel.submitted} of {total} {L.plural} have submitted
             </p>
           </div>
           <Progress value={done} className="mb-1.5 h-2.5 min-w-40 flex-1" aria-label={`${done}% submitted`} />
         </div>
         {total === 0 ? (
-          <p className="text-sm text-muted-foreground">Import your customer list to see progress here.</p>
+          <p className="text-sm text-muted-foreground">Import your {L.singular} list to see progress here.</p>
         ) : (
           <div className="flex flex-col gap-3" role="list" aria-label="Response funnel">
             {stages.map((s) => {
@@ -176,7 +185,7 @@ function ProgressCard({ data }: { data: OverviewData }) {
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    <b>{s.label}</b>: {s.value} of {total} customers ({w}%). {s.hint}.
+                    <b>{s.label}</b>: {s.value} of {total} {L.plural} ({w}%). {s.hint}.
                   </TooltipContent>
                 </Tooltip>
               );
@@ -207,7 +216,7 @@ function DueChip({ dueDate, daysLeft }: { dueDate?: string; daysLeft: number | n
 
 // ---------------- Needs attention ----------------
 
-function AttentionCard({ data }: { data: OverviewData }) {
+function AttentionCard({ data, L }: { data: OverviewData; L: PartyLabels }) {
   const a = data.attention;
   const items = [
     { n: a.toReview, label: 'Submissions to review', icon: ClipboardCheck, to: 'review=pending', tone: 'text-warning bg-warning-soft' },
@@ -233,7 +242,7 @@ function AttentionCard({ data }: { data: OverviewData }) {
             {items.map((i) => (
               <li key={i.label}>
                 <Link
-                  to={`/admin/customers?${i.to}`}
+                  to={`${L.path}?${i.to}`}
                   className={cn('flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-muted', i.n === 0 && 'pointer-events-none opacity-45')}
                   aria-disabled={i.n === 0}
                 >
@@ -255,7 +264,7 @@ function AttentionCard({ data }: { data: OverviewData }) {
 
 // ---------------- Review queue ----------------
 
-function ReviewQueue({ data }: { data: OverviewData }) {
+function ReviewQueue({ data, L }: { data: OverviewData; L: PartyLabels }) {
   return (
     <Card className="lg:col-span-2" size="sm">
       <CardHeader>
@@ -263,7 +272,7 @@ function ReviewQueue({ data }: { data: OverviewData }) {
         <CardDescription>Oldest first. Check each one against the uploaded licence and certificates.</CardDescription>
         <CardAction>
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/admin/customers?review=pending">
+            <Link to={`${L.path}?review=pending`}>
               View all <ArrowRight />
             </Link>
           </Button>
@@ -276,7 +285,7 @@ function ReviewQueue({ data }: { data: OverviewData }) {
           <ul className="divide-y divide-border">
             {data.toReview.map((c) => (
               <li key={c.id}>
-                <Link to={`/admin/customers/${c.id}`} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-muted/60">
+                <Link to={partyPath(c)} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-muted/60">
                   <span className="w-24 shrink-0 font-mono text-xs text-muted-foreground">{c.code}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{c.companyName || c.name}</span>
@@ -326,7 +335,7 @@ function RecentActivity({ data }: { data: OverviewData }) {
                     {l.customer && typeof l.customer === 'object' ? (
                       <>
                         {' · '}
-                        <Link to={`/admin/customers/${l.customer._id}`} className="font-mono hover:text-foreground">
+                        <Link to={partyPath({ id: l.customer._id, type: l.customer.type })} className="font-mono hover:text-foreground">
                           {l.customer.code}
                         </Link>
                       </>
@@ -344,14 +353,14 @@ function RecentActivity({ data }: { data: OverviewData }) {
 
 // ---------------- Go-live checklist ----------------
 
-function SetupChecklist({ setup }: { setup: OverviewData['setup'] }) {
+function SetupChecklist({ setup, L }: { setup: OverviewData['setup']; L: PartyLabels }) {
   const steps: { done: boolean; label: string; to: string; action: string }[] = [
     { done: setup.entities, label: 'Check MCI’s own entity details (TRN, TIN, licence)', to: '/admin/entities', action: 'Open entities' },
-    { done: setup.dueDate, label: 'Set the due date customers see', to: '/admin/settings', action: 'Open settings' },
-    { done: setup.contactEmail, label: 'Add the contact email customers reply to', to: '/admin/settings', action: 'Open settings' },
+    { done: setup.dueDate, label: 'Set the due date customers and vendors see', to: '/admin/settings', action: 'Open settings' },
+    { done: setup.contactEmail, label: 'Add the contact email customers and vendors reply to', to: '/admin/settings', action: 'Open settings' },
     { done: setup.smtp, label: 'Connect email sending (Mailjet) so invites are really sent', to: '/admin/settings?tab=emails', action: 'Email settings' },
-    { done: setup.customers, label: 'Import the customer list', to: '/admin/customers', action: 'Customers' },
-    { done: setup.invitesSent, label: 'Send the first invites', to: '/admin/customers?status=new', action: 'Not sent' },
+    { done: setup.customers, label: `Import the ${L.singular} list`, to: L.path, action: L.Plural },
+    { done: setup.invitesSent, label: `Send the first invites to ${L.plural}`, to: `${L.path}?status=new`, action: 'Not sent' },
   ];
   const left = steps.filter((s) => !s.done).length;
   if (left === 0) return null;

@@ -5,7 +5,7 @@ import { cleanupTemp, openLogo, sendStoredFile, storeCustomerFile } from '../../
 import { ApiError } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { str } from '../../utils/http.js';
-import { FILE_FIELDS, normalise, validate, type FileField } from '../../utils/rules.js';
+import { FILE_FIELDS, isEmail, normalise, validate, type FileField } from '../../utils/rules.js';
 import * as service from './public-form.service.js';
 
 type UploadedFiles = Partial<Record<FileField, Express.Multer.File[]>>;
@@ -48,6 +48,7 @@ export async function getForm(req: Request, res: Response) {
     settings: service.publicSettings(s),
     entities: entities.map(service.publicEntity),
     customer: {
+      type: c.type ?? 'customer',
       code: c.code,
       name: c.name,
       status: c.status,
@@ -58,6 +59,17 @@ export async function getForm(req: Request, res: Response) {
       files: service.customerFiles(c),
     },
   });
+}
+
+/**
+ * "Send my link again" on the home page. Always answers the same way, before doing any work,
+ * so it can't be used to find out which addresses are registered.
+ */
+export async function resendLink(req: Request, res: Response) {
+  const email = str(req.body?.email).trim();
+  if (!isEmail(email)) throw new ApiError(400, 'Enter a valid email address.');
+  res.json({ ok: true });
+  service.resendLinks(email).catch((e: unknown) => req.log.error({ err: e }, '[resend] link resend failed'));
 }
 
 export async function submitForm(req: Request, res: Response) {

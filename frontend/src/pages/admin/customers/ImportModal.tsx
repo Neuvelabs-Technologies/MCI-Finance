@@ -7,9 +7,21 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { plural } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { ImportResult } from '@/types';
+import { partyLabels } from '@/lib/party';
+import type { ImportResult, PartyType } from '@/types';
 
-export function ImportModal({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; onDone: () => void }) {
+export function ImportModal({
+  type,
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  type: PartyType;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onDone: () => void;
+}) {
+  const L = partyLabels(type);
   const [file, setFile] = useState<File | null>(null);
   const [res, setRes] = useState<ImportResult | null>(null);
   const [err, setErr] = useState('');
@@ -31,7 +43,7 @@ export function ImportModal({ open, onOpenChange, onDone }: { open: boolean; onO
     setBusy(true);
     setErr('');
     try {
-      setRes(await customersApi.import(file));
+      setRes(await customersApi.import(file, type));
       onDone();
     } catch (e) {
       setErr(errorMessage(e));
@@ -44,9 +56,9 @@ export function ImportModal({ open, onOpenChange, onDone }: { open: boolean; onO
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Import customers</DialogTitle>
+          <DialogTitle>Import {L.plural}</DialogTitle>
           <DialogDescription>
-            An Excel (.xlsx) or CSV file with the columns <b>Code</b>, <b>Company name</b>, <b>Email</b> and optionally <b>Contact name</b>. Codes already on the list are updated; new codes are added.
+            An Excel (.xlsx) or CSV file with the columns <b>Code</b>, <b>Company name</b>, <b>Email</b> and optionally <b>Contact name</b>. Codes already on the {L.plural} list are updated; new codes are added as {L.plural}. A code that belongs to a{type === 'vendor' ? ' customer' : ' vendor'} is skipped.
           </DialogDescription>
         </DialogHeader>
 

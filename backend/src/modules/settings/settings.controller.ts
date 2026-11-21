@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { config } from '../../config/env.js';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
-import { Settings, type EmailSettings } from '../../models/Settings.js';
+import { Settings, type EmailSettings, type EmailTemplates } from '../../models/Settings.js';
 import { deliver, renderEmail, mailConfigured, templatesFor } from '../../services/mailer.service.js';
 import { saveLogo } from '../../services/storage.service.js';
 import { badRequest } from '../../utils/ApiError.js';
@@ -22,6 +22,7 @@ export async function update(req: Request, res: Response) {
   const b = (req.body ?? {}) as Record<string, unknown> & {
     sections?: { ownership?: unknown; bank?: unknown };
     email?: Partial<Record<keyof EmailSettings, unknown>>;
+    vendorEmail?: Partial<Record<keyof EmailTemplates, unknown>>;
   };
 
   if (b.autoReminderDays !== undefined && !/^\s*(\d+\s*(,\s*\d+\s*)*)?$/.test(str(b.autoReminderDays)))
@@ -40,6 +41,9 @@ export async function update(req: Request, res: Response) {
   if (b.email) {
     for (const k of EMAIL_TEXT_FIELDS) if (b.email[k] !== undefined) s.email[k] = str(b.email[k]);
     if (b.email.sendConfirmation !== undefined) s.email.sendConfirmation = !!b.email.sendConfirmation;
+  }
+  if (b.vendorEmail) {
+    for (const k of EMAIL_TEXT_FIELDS) if (b.vendorEmail[k] !== undefined) s.vendorEmail[k] = str(b.vendorEmail[k]);
   }
   await s.save();
   await audit(req, 'settings.updated');
@@ -72,17 +76,21 @@ export async function testEmail(req: Request, res: Response) {
   res.json({ ok: true, smtpConfigured: mailConfigured() });
 }
 
-/** Render the invite/reminder email with unsaved edits from the settings page. */
+/** Render the invite/reminder email with unsaved edits from the settings page. `type: 'vendor'` previews the vendor set. */
 export async function previewEmail(req: Request, res: Response) {
   const s = await Settings.get();
   const saved = s.toObject();
   const kind = req.body?.kind === 'reminder' ? 'reminder' : 'invite';
+  const vendor = req.body?.type === 'vendor';
   const branding = { ...saved, ...((req.body?.settings ?? {}) as Partial<typeof saved>) };
-  const email: EmailSettings = { ...saved.email, ...((req.body?.email ?? {}) as Partial<EmailSettings>) };
+  const base: EmailTemplates = vendor ? saved.vendorEmail : saved.email;
+  const templates: EmailTemplates = { ...base, ...((req.body?.email ?? {}) as Partial<EmailTemplates>) };
   const out = renderEmail({
-    ...templatesFor(kind, email),
+    ...templatesFor(kind, templates),
     settings: branding,
-    customer: { code: 'CL01015', name: 'Example Trading LLC', token: 'preview-token-example' },
+    customer: vendor
+      ? { type: 'vendor', code: 'V00231', name: 'Example Supplies FZE', token: 'preview-token-example' }
+      : { code: 'CL01015', name: 'Example Trading LLC', token: 'preview-token-example' },
   });
   res.json(out);
 }

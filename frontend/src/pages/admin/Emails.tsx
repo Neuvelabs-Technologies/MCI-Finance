@@ -11,18 +11,26 @@ import { Notice } from '@/components/common/Form';
 import { PageHeader } from '@/components/common/PageHeader';
 import { KpiStrip, StatCard } from '@/components/common/StatCard';
 import { MailStatusChip } from '@/components/common/StatusChip';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MAIL_KIND_LABEL, MAIL_KIND_OPTIONS, MAIL_STATUS_OPTIONS } from '@/lib/emails';
 import { fmtDateTime, plural, relativeTime } from '@/lib/format';
 import type { EmailList, EmailMessage, MailStatus } from '@/types';
+import { partyPath } from '@/lib/party';
 
 const sum = (s: EmailList['summary'], keys: MailStatus[]) => keys.reduce((n, k) => n + (s[k] ?? 0), 0);
+
+const PARTY_OPTIONS = [
+  { value: 'customer', label: 'Customers' },
+  { value: 'vendor', label: 'Vendors' },
+];
 
 export default function Emails() {
   const [params, setParams] = useSearchParams();
   const status = params.get('status') ?? '';
   const kind = params.get('kind') ?? '';
   const customer = params.get('customer') ?? '';
+  const party = params.get('type') ?? '';
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -44,13 +52,13 @@ export default function Emails() {
     setLoading(true);
     setError(null);
     try {
-      setRes(await emailsApi.list({ q, status, kind, customer, page, limit: pageSize }));
+      setRes(await emailsApi.list({ q, status, kind, customer, type: party, page, limit: pageSize }));
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, [q, status, kind, customer, page, pageSize]);
+  }, [q, status, kind, customer, party, page, pageSize]);
 
   useEffect(() => {
     document.title = 'Emails — MCI e-Invoicing';
@@ -79,7 +87,7 @@ export default function Emails() {
   const s = res?.summary ?? {};
   const total = Object.values(s).reduce((n, v) => n + (v ?? 0), 0);
   const problems = sum(s, ['bounced', 'blocked', 'spam', 'failed']);
-  const filtered = !!(status || kind || customer || q);
+  const filtered = !!(status || kind || customer || party || q);
   const customerName = customer && res?.emails[0]?.customer && typeof res.emails[0].customer === 'object' ? res.emails[0].customer.code : null;
 
   const columns: Column<EmailMessage>[] = [
@@ -106,14 +114,17 @@ export default function Emails() {
     },
     {
       key: 'customer',
-      label: 'Customer',
+      label: 'Customer / vendor',
       stopRowClick: true,
       hideBelow: 'md',
       render: (e) =>
         e.customer && typeof e.customer === 'object' ? (
-          <Link to={`/admin/customers/${e.customer._id}`} className="font-mono text-[13px] font-semibold text-primary hover:underline" title={e.customer.name}>
-            {e.customer.code}
-          </Link>
+          <span className="flex items-center gap-2">
+            <Link to={partyPath({ id: e.customer._id, type: e.customer.type })} className="font-mono text-[13px] font-semibold text-primary hover:underline" title={e.customer.name}>
+              {e.customer.code}
+            </Link>
+            {e.customer.type === 'vendor' ? <Badge variant="info">Vendor</Badge> : null}
+          </span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
@@ -145,7 +156,7 @@ export default function Emails() {
               </Button>
             ) : null}
             <Button variant="outline" asChild>
-              <a href={emailsApi.exportUrl({ q, status, kind, customer })}>
+              <a href={emailsApi.exportUrl({ q, status, kind, customer, type: party })}>
                 <Download /> Export{filtered ? ' filtered' : ''}
               </a>
             </Button>
@@ -228,6 +239,7 @@ export default function Emails() {
             filters={[
               { name: 'status', label: 'Status', value: status, options: MAIL_STATUS_OPTIONS, onChange: (v) => setFilter('status', v) },
               { name: 'kind', label: 'Type', value: kind, options: MAIL_KIND_OPTIONS, onChange: (v) => setFilter('kind', v) },
+              { name: 'type', label: 'Customers & vendors', value: party, options: PARTY_OPTIONS, onChange: (v) => setFilter('type', v) },
             ]}
             onReset={() => {
               setQ('');
