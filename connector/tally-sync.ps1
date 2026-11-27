@@ -14,6 +14,9 @@
       sync (Tally's AlterID tells which). The first sync goes month by month.
   Once a day: the list of every voucher and ledger still in Tally, so ones deleted there are flagged
   (never deleted) in MCI Finance.
+  Each voucher line carries its cost centres (MCI's projects), and each ledger its chain of groups,
+  for the Group P&L. After an update that reads more per voucher, the next sync re-reads every
+  voucher once (dataVersion in state.json).
 
   It only sends simple Export requests to Tally, each with a time limit. It never imports, alters or
   deletes anything in Tally. Plain Windows PowerShell 5.1: nothing to install.
@@ -35,7 +38,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.1.4'
+$ConnectorVersion = '1.2.0'
+# Bumped when vouchers carry more than before: the next sync then re-reads every voucher once.
+$DataVersion = 2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -223,10 +228,10 @@ function Get-VoucherTypeBases([string]$Company) {
   return $bases
 }
 
-# Each group's primary group (the top of its chain: Sales Accounts, Sundry Debtors, Bank Accounts...).
-# Uses Tally's built-in name of the primary group (its RESERVEDNAME), so a group MCI renamed, e.g.
+# Each group's chain up to its primary group, by Tally's names: @('Rent', 'Office Costs', 'Indirect Expenses'),
+# and its primary group by Tally's built-in name (RESERVEDNAME), so a group MCI renamed, e.g.
 # "Trade Receivables" for Sundry Debtors, still counts as Sundry Debtors in the reports.
-function Get-PrimaryGroups([string]$Company) {
+function Get-GroupChains([string]$Company) {
   $parents = @{}
   $reserved = @{}
   foreach ($g in Get-TallyCollection -Company $Company -Type 'Group' -Fetch 'Name,Parent,ReservedName' -TimeoutSec 120) {
@@ -238,21 +243,28 @@ function Get-PrimaryGroups([string]$Company) {
     if (-not $r) { $r = Get-Text $g 'RESERVEDNAME' }
     if ($r) { $reserved[$name] = $r.Trim() }
   }
+  $chains = @{}
   $primary = @{}
   foreach ($name in $parents.Keys) {
+    $chain = New-Object System.Collections.ArrayList
     $cur = $name
+    [void]$chain.Add($cur)
     for ($d = 0; $d -lt 20; $d++) {
       $p = $parents[$cur]
       if (-not $p -or $p -eq $cur -or -not $parents.ContainsKey($p)) { break }
       $cur = $p
+      [void]$chain.Add($cur)
     }
+    $chains[$name] = @($chain)
     $primary[$name] = if ($reserved.ContainsKey($cur)) { $reserved[$cur] } else { $cur }
   }
-  return $primary
+  return @{ chains = $chains; primary = $primary }
 }
 
 function Get-Ledgers([string]$Company) {
-  $primary = Get-PrimaryGroups $Company
+  $tree = Get-GroupChains $Company
+  $chains = $tree.chains
+  $primary = $tree.primary
   $nodes = Get-TallyCollection -Company $Company -Type 'Ledger' -Fetch 'Name,Parent,GUID,AlterID,OpeningBalance,ClosingBalance' -TimeoutSec 300
   return @($nodes | ForEach-Object {
       $parent = Get-Text $_ 'PARENT'
@@ -262,6 +274,7 @@ function Get-Ledgers([string]$Company) {
         alterId = [long](ConvertTo-Amount (Get-Text $_ 'ALTERID'))
         parent  = $parent
         group   = if ($primary.ContainsKey($parent)) { $primary[$parent] } else { $parent }
+        groups  = if ($chains.ContainsKey($parent)) { @($chains[$parent]) } elseif ($parent) { @($parent) } else { @() }
         opening = ConvertTo-Amount (Get-Text $_ 'OPENINGBALANCE')
         closing = ConvertTo-Amount (Get-Text $_ 'CLOSINGBALANCE')
       }
@@ -269,21 +282,37 @@ function Get-Ledgers([string]$Company) {
 }
 
 $VoucherFetch = 'GUID,AlterID,Date,VoucherTypeName,VoucherNumber,Reference,PartyLedgerName,Narration,IsCancelled,IsOptional,' +
-'AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,AllInventoryEntries.AccountingAllocations.LedgerName,AllInventoryEntries.AccountingAllocations.Amount'
+'AllLedgerEntries.LedgerName,AllLedgerEntries.Amount,AllInventoryEntries.AccountingAllocations.LedgerName,AllInventoryEntries.AccountingAllocations.Amount,' +
+'AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Name,AllLedgerEntries.CategoryAllocations.CostCentreAllocations.Amount,' +
+'AllInventoryEntries.AccountingAllocations.CategoryAllocations.CostCentreAllocations.Name,AllInventoryEntries.AccountingAllocations.CategoryAllocations.CostCentreAllocations.Amount'
+
+# One voucher line, with its cost centres (MCI's projects) if it has any.
+function Convert-Entry($e, [hashtable]$Groups) {
+  $name = Get-Text $e 'LEDGERNAME'
+  if (-not $name) { return $null }
+  $centres = New-Object System.Collections.ArrayList
+  foreach ($c in $e.SelectNodes('CATEGORYALLOCATIONS.LIST/COSTCENTREALLOCATIONS.LIST')) {
+    $cc = Get-Text $c 'NAME'
+    if ($cc) { [void]$centres.Add([ordered]@{ name = $cc; amount = ConvertTo-Amount (Get-Text $c 'AMOUNT') }) }
+  }
+  $row = [ordered]@{ ledger = $name; group = [string]$Groups[$name]; amount = ConvertTo-Amount (Get-Text $e 'AMOUNT') }
+  if ($centres.Count -gt 0) { $row.costCentres = @($centres) }
+  return $row
+}
 
 function Convert-Voucher($v, [hashtable]$Groups, [hashtable]$Bases) {
   $entries = New-Object System.Collections.ArrayList
   foreach ($e in $v.SelectNodes('ALLLEDGERENTRIES.LIST')) {
-    $name = Get-Text $e 'LEDGERNAME'
-    if ($name) { [void]$entries.Add([ordered]@{ ledger = $name; group = [string]$Groups[$name]; amount = ConvertTo-Amount (Get-Text $e 'AMOUNT') }) }
+    $row = Convert-Entry $e $Groups
+    if ($row) { [void]$entries.Add($row) }
   }
   # Item invoices keep the sales/purchase ledger under the inventory lines. Add those only if the
   # ledger lines alone don't balance, so nothing is counted twice.
   $sum = 0.0; foreach ($e in $entries) { $sum += $e.amount }
   if ([Math]::Abs($sum) -gt 0.01) {
     foreach ($e in $v.SelectNodes('ALLINVENTORYENTRIES.LIST/ACCOUNTINGALLOCATIONS.LIST')) {
-      $name = Get-Text $e 'LEDGERNAME'
-      if ($name) { [void]$entries.Add([ordered]@{ ledger = $name; group = [string]$Groups[$name]; amount = ConvertTo-Amount (Get-Text $e 'AMOUNT') }) }
+      $row = Convert-Entry $e $Groups
+      if ($row) { [void]$entries.Add($row) }
     }
   }
   $type = Get-Text $v 'VOUCHERTYPENAME'
@@ -315,7 +344,7 @@ function Get-MonthWindows {
   return , $windows   # the comma stops PowerShell unrolling the list
 }
 
-function Sync-Company([string]$Company, [bool]$RunPresenceCheck) {
+function Sync-Company([string]$Company, [bool]$RunPresenceCheck, [bool]$Refetch) {
   $started = Get-Date
   $target = @{ source = $Config.source; company = $Company }
   $bases = Get-VoucherTypeBases $Company
@@ -326,7 +355,7 @@ function Sync-Company([string]$Company, [bool]$RunPresenceCheck) {
   Write-Log "$Company : $($ledgers.Count) ledgers sent"
 
   $state = Invoke-Api 'Get' ("/state?source={0}&company={1}" -f [uri]::EscapeDataString($Config.source), [uri]::EscapeDataString($Company))
-  $since = if ($Full) { 0 } else { [long]$state.maxVoucherAlterId }
+  $since = if ($Full -or $Refetch) { 0 } else { [long]$state.maxVoucherAlterId }
   # The filter's formula is its own definition next to the collection, not inside it.
   $filter = '<FILTERS>MCIChanged</FILTERS>'
   $formula = "<SYSTEM TYPE=`"Formulae`" NAME=`"MCIChanged`">`$AlterID &gt; $since</SYSTEM>"
@@ -380,10 +409,16 @@ $mutex = New-Object System.Threading.Mutex($false, 'Global\MCIFinanceTallyConnec
 if (-not $mutex.WaitOne(0)) { Write-Log 'A sync is still running; skipping this check-in.'; exit 0 }
 
 try {
-  $state = @{ lastPresenceCheck = ''; lastSyncAt = '' }
+  $state = @{ lastPresenceCheck = ''; lastSyncAt = ''; dataVersion = 0 }
   if (Test-Path $StateFile) {
-    try { $saved = Get-Content $StateFile -Raw | ConvertFrom-Json; $state.lastPresenceCheck = [string]$saved.lastPresenceCheck; $state.lastSyncAt = [string]$saved.lastSyncAt } catch { }
+    try {
+      $saved = Get-Content $StateFile -Raw | ConvertFrom-Json
+      $state.lastPresenceCheck = [string]$saved.lastPresenceCheck; $state.lastSyncAt = [string]$saved.lastSyncAt
+      if ($saved.dataVersion) { $state.dataVersion = [int]$saved.dataVersion }
+    } catch { }
   }
+  # Vouchers sent by an older connector lack what this one reads (cost centres): re-read them all once.
+  $refetch = $state.dataVersion -lt $DataVersion
   function Save-State { $state | ConvertTo-Json | Set-Content $StateFile -Encoding UTF8 }
 
   # 1. What is on Tally's port?
@@ -418,7 +453,7 @@ try {
   # 3. Is a sync due?
   $last = [datetime]::MinValue
   if ($state.lastSyncAt) { try { $last = [datetime]::Parse($state.lastSyncAt, $Invariant) } catch { } }
-  $due = $Full -or ((Get-Date) - $last).TotalMinutes -ge ($SyncMinutes - 0.5)
+  $due = $Full -or $refetch -or ((Get-Date) - $last).TotalMinutes -ge ($SyncMinutes - 0.5)
   $requested = Send-Heartbeat 'idle' "$($probe.product)$who is open with $($companies -join ', ')." $probe $companies
 
   if ($Test) {
@@ -432,13 +467,13 @@ try {
   # 4. Sync
   $today = (Get-Date).ToString('yyyy-MM-dd')
   $presence = $Full -or ($state.lastPresenceCheck -ne $today -and (Get-Date).Hour -ge $PresenceHour)
-  $why = if ($requested) { 'requested from the dashboard' } elseif ($Full) { 'full sync' } else { "every $SyncMinutes minutes" }
+  $why = if ($requested) { 'requested from the dashboard' } elseif ($Full) { 'full sync' } elseif ($refetch) { 'connector updated: reading every voucher again once' } else { "every $SyncMinutes minutes" }
   Write-Log "Sync starting ($why): $($companies -join ', ')"
   [void](Send-Heartbeat 'syncing' "Syncing $($companies -join ', ') ($why)." $probe $companies -StartingRequestedSync:$requested)
 
   $failed = @()
   foreach ($c in $companies) {
-    try { Sync-Company $c $presence }
+    try { Sync-Company $c $presence $refetch }
     catch {
       $failed += $c
       $msg = $_.Exception.Message
@@ -448,6 +483,7 @@ try {
   }
   if ($failed.Count -eq 0) {
     $state.lastSyncAt = (Get-Date).ToString('o')
+    $state.dataVersion = $DataVersion
     if ($presence) { $state.lastPresenceCheck = $today }
     Save-State
     [void](Send-Heartbeat 'synced' "Synced $($companies -join ', ')." $probe $companies -Synced)

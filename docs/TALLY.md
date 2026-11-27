@@ -149,6 +149,25 @@ Tally stores credit as positive and debit as negative, and the data keeps that s
 
 Cancelled and optional vouchers are left out. If MCI has renamed Tally's primary groups, add the new names to `GROUPS` in `backend/src/modules/tally/tally.controller.ts`.
 
+## Group P&L (actual vs forecast)
+
+The **Group P&L** tab rebuilds MCI Group's management P&L (the group planning tool's "Group P&L" export) with the same rows (A500.110 … EBT, ratios) and columns (Office, Local HQ, Other Offices, Local Adjustments, Local Management, Back-Office, Business Service Lines, PCO/SME, AM&C, Corporate Division, Specialty). Actual comes from Tally, year to date. The forecast is the monthly export, uploaded as it is (**Upload forecast**). It is annual, so actual is compared with the full year. **Excel** downloads Actual, Forecast and Actual vs Forecast sheets.
+
+What MCI told us (27 Nov 2026), and how the app follows it:
+
+| Topic | Rule |
+|---|---|
+| Accounts | The Tally user (Ann) links each income/expense ledger, or a whole Tally group, to a group account in **Setup → Accounts**. A ledger's own link wins over its groups'. Ledgers whose names carry a code (`A501.100 …`) or match an account name can be linked in one click. |
+| Gross margin | Turnover less cost of sales from Tally. The pipeline rows (closed, contracted, prospects) are forecast only. |
+| Projects | Each Tally cost centre is a project. **Setup → Projects** gives each one its service line; its revenue and cost of sales go there. Only revenue and cost of sales carry cost centres. |
+| Back-office costs | Spread over the service lines **in the app only** (nothing goes back to Tally), per account, by FTE, headcount, gross margin or office m² (**Setup → Allocation keys**). Defaults follow MCI DUBAI's 2026 forecast: staff, IT, admin, travel and depreciation by FTE; rent and utilities by m²; insurance, marketing, audit, bank and FX by gross margin; Group Service Agreements, IFRS16 depreciation and financial costs stay in Local HQ; goodwill in Local Adjustments. Salaries are spread by FTE. |
+| FTE, headcount, m² | Not in Tally: entered per year and service line from the HR payroll report (**Setup → HR figures**). |
+| Currency | AED (USD entries are converted by Tally). |
+
+Nothing is hidden. Unlinked ledgers, projects without a service line, revenue without a project and missing HR figures are listed above the table, and those amounts sit in Back-Office until fixed.
+
+Cost centres and group chains arrive with **connector 1.2.0**. After copying it to the Tally server, the next sync reads every voucher again once (it can take a while), then goes back to changes only.
+
 ## Changing things later (CI/CD)
 
 **One repo** (`Neuvelabs-Technologies/MCI-Finance`), no separate git for the connector.
@@ -167,12 +186,14 @@ Connector (header `X-Tally-Key`):
 | Method | Path | Body / query |
 |---|---|---|
 | GET | `/api/tally/connector/state` | `?source=&company=` → `{ maxVoucherAlterId, lastSync }` |
-| POST | `/api/tally/connector/ledgers` | `{ source, company, ledgers: [{ guid, name, alterId, parent, group, opening, closing }] }` (≤ 20,000) |
-| POST | `/api/tally/connector/vouchers` | `{ source, company, vouchers: [{ guid, alterId, date, voucherType, baseType, number, reference, party, narration, cancelled, optional, entries: [{ ledger, group, amount }] }] }` (≤ 5,000) |
+| POST | `/api/tally/connector/ledgers` | `{ source, company, ledgers: [{ guid, name, alterId, parent, group, groups?, opening, closing }] }` (≤ 20,000; `groups` = chain up to the primary group, 1.2.0+) |
+| POST | `/api/tally/connector/vouchers` | `{ source, company, vouchers: [{ guid, alterId, date, voucherType, baseType, number, reference, party, narration, cancelled, optional, entries: [{ ledger, group, amount, costCentres?: [{ name, amount }] }] }] }` (≤ 5,000; `costCentres` 1.2.0+) |
 | POST | `/api/tally/connector/present` | `{ source, company, kind: "ledger" \| "voucher", guids: [...], force? }` |
 | POST | `/api/tally/connector/sync-log` | `{ source, company, ok, ledgers, vouchers, full, durationMs, error?, connectorVersion?, host? }` |
 
-Dashboard (signed in, with Tally access): `GET /api/tally/companies`, `/summary`, `/vouchers`, `/ledgers` (`?source=&company=&from=&to=&type=&group=&q=&page=&limit=`). Access: `PUT /api/admins/:id/tally { enabled }`.
+Dashboard (signed in, with Tally access): `GET /api/tally/companies`, `/summary`, `/vouchers`, `/ledgers` (`?source=&company=&from=&to=&type=&group=&q=&page=&limit=`).
+
+Group P&L (same access): `GET /api/tally/group-pl` and `/group-pl/export` (`?source=&company=&year=&month=&forecastId=`), `GET`/`PUT /api/tally/group-pl/setup` (`{ accounts?, projects?, treatments?, hr? }`, each list replaces the saved one), `POST /api/tally/group-pl/forecast` (multipart `file`, `source`, `company`, `year` if the file doesn't say). Access: `PUT /api/admins/:id/tally { enabled }`.
 
 ## Security notes
 

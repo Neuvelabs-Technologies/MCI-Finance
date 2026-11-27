@@ -17,6 +17,8 @@ export interface ITallyLedger {
   parent: string;
   /** Tally's primary group (Sales Accounts, Sundry Debtors, Bank Accounts…). */
   group: string;
+  /** Every group above the ledger, nearest first, ending with the primary group (connector 1.2.0+). */
+  groups: string[];
   opening: number;
   closing: number;
   deletedInTally: boolean;
@@ -32,6 +34,7 @@ const TallyLedgerSchema = new Schema<ITallyLedger>(
     name: { type: String, required: true },
     parent: { type: String, default: '' },
     group: { type: String, default: '' },
+    groups: { type: [String], default: [] },
     opening: { type: Number, default: 0 },
     closing: { type: Number, default: 0 },
     deletedInTally: { type: Boolean, default: false },
@@ -47,6 +50,8 @@ export interface ITallyEntry {
   /** Primary group of the ledger when the voucher was synced. */
   group: string;
   amount: number;
+  /** The line split over cost centres (MCI's projects), same sign as `amount` (connector 1.2.0+). */
+  costCentres?: { name: string; amount: number }[];
 }
 
 export interface ITallyVoucher {
@@ -88,7 +93,15 @@ const TallyVoucherSchema = new Schema<ITallyVoucher>(
     amount: { type: Number, default: 0 },
     cancelled: { type: Boolean, default: false },
     optional: { type: Boolean, default: false },
-    entries: [{ _id: false, ledger: String, group: String, amount: Number }],
+    entries: [
+      {
+        _id: false,
+        ledger: String,
+        group: String,
+        amount: Number,
+        costCentres: { type: [{ _id: false, name: String, amount: Number }], default: undefined },
+      },
+    ],
     deletedInTally: { type: Boolean, default: false },
     syncedAt: { type: Date, default: Date.now },
   },

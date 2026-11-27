@@ -12,6 +12,11 @@
 - **Reports tab**: quarter and year summary (income, expenses, net, margin, by calendar quarter), profit and loss by ledger, and sales by customer, each downloadable as CSV.
 - **More periods**: this month, last month, this quarter, last quarter, this year, last year, last 12 months, all dates, or custom dates.
 - Connector 1.1.0: checks in every 2 minutes (`/api/tally/connector/heartbeat`) and syncs every 15 minutes or on request. Only simple export requests, each with a time limit, so a busy Tally can't hold it up; works out primary groups itself instead of asking Tally to compute them. Reads only `expectProduct` (TallyPrime) and reports any other Tally on the port instead of reading it. Re-run `install-task.ps1` to switch the schedule to every 2 minutes.
+- **Group P&L** tab in Tally reports: MCI Group's management P&L with the group tool's rows and columns. Actual from Tally (year to date, to the end of a chosen month) next to the uploaded full-year forecast, with variance and % of forecast for any column. Click an account to see its Tally ledgers. **Excel** downloads Actual, Forecast and Actual vs Forecast sheets.
+  - **Upload forecast**: the monthly P&L export from the group planning tool, as it is. Year, version and entity are read from the file. Older uploads are kept and can be picked.
+  - **Setup**: link Tally ledgers or whole Tally groups to group accounts (one click for ledgers named like an account); give each project (Tally cost centre) its service line; choose how each account is spread (by project, FTE, headcount, gross margin or office m², or kept in Local HQ / Local Adjustments); enter FTE, headcount and m² per service line from the HR report. Back-office costs are spread in the app only. Changes are recorded in Activity.
+  - Anything not yet placed (unlinked ledgers, projects without a service line, revenue without a project, missing HR figures) is listed above the table and kept in Back-Office, so totals always match the books.
+- Connector 1.2.0: also reads the cost centres on each voucher line and each ledger's chain of groups. After the update, the next sync reads every voucher again once.
 
 ### Changed
 - Pushes that only change `connector/` don't redeploy the App Service.

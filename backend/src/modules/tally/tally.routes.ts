@@ -1,6 +1,8 @@
 import express, { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAdmin } from '../../middlewares/auth.middleware.js';
+import { importUpload } from '../../middlewares/upload.middleware.js';
+import * as groupPl from '../grouppl/grouppl.controller.js';
 import * as connector from './tally.connector.js';
 import * as controller from './tally.controller.js';
 
@@ -27,3 +29,10 @@ dashboardRouter.get('/ledgers', controller.ledgerList);
 dashboardRouter.get('/status', controller.status);
 dashboardRouter.post('/sync-request', controller.requestSync);
 dashboardRouter.get('/report', controller.report);
+
+// Group P&L: actual from Tally vs the uploaded forecast.
+dashboardRouter.get('/group-pl', groupPl.report);
+dashboardRouter.get('/group-pl/export', groupPl.exportXlsx);
+dashboardRouter.get('/group-pl/setup', groupPl.getSetup);
+dashboardRouter.put('/group-pl/setup', groupPl.saveSetup);
+dashboardRouter.post('/group-pl/forecast', importUpload, groupPl.uploadForecast);

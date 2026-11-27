@@ -446,3 +446,53 @@ export interface RenderedEmail {
   text: string;
   html: string;
 }
+
+// ---------------- Group P&L (Tally actual vs forecast) ----------------
+
+export type GroupPlRowKind = 'leaf' | 'total' | 'forecastOnly' | 'stat' | 'ratio';
+export type GroupPlRowStyle = '' | 'highlighted' | 'subtotal' | 'total';
+export interface GroupPlValues {
+  code: string;
+  values: (number | null)[];
+}
+export interface GroupPlReport {
+  source: string;
+  company: string;
+  year: number;
+  month: number;
+  periodLabel: string;
+  columns: { key: string; label: string }[];
+  chart: { code: string; name: string; style: GroupPlRowStyle; kind: GroupPlRowKind }[];
+  actual: {
+    rows: GroupPlValues[];
+    detail: Record<string, { ledger: string; amount: number }[]>;
+    warnings: {
+      unmapped: { ledger: string; group: string; amount: number }[];
+      unassignedProjects: { costCentre: string; amount: number }[];
+      noProject: number;
+      missingBasis: string[];
+    };
+  };
+  forecast: { id: string; label: string; version: string; entity: string; fileName: string; uploadedAt: string; uploadedBy: string; rows: GroupPlValues[] } | null;
+  forecasts: { id: string; label: string; fileName: string; uploadedAt: string; uploadedBy: string }[];
+  setupStatus: { accounts: number; projects: number; hrYear: boolean };
+}
+
+export interface GroupPlSetupData {
+  accounts: { kind: 'ledger' | 'group'; name: string; account: string }[];
+  projects: { costCentre: string; serviceLine: string }[];
+  treatments: { account: string; treatment: string }[];
+  hr: { year: number; serviceLine: string; fte: number; headcount: number; sqm: number }[];
+}
+export interface GroupPlSetupResponse {
+  source: string;
+  company: string;
+  year: number;
+  setup: GroupPlSetupData;
+  accounts: { code: string; name: string; treatment: string; income: boolean }[];
+  treatments: string[];
+  serviceLines: string[];
+  ledgers: { name: string; parent: string; group: string; groups: string[]; amount: number; suggested: string | null }[];
+  groups: { name: string; above: string[] }[];
+  costCentres: { name: string; amount: number; lines: number; last: string }[];
+}
