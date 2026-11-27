@@ -105,7 +105,25 @@ export const config = {
   quickLogin: !isProd || env('QUICK_LOGIN', '') === 'true',
   // Load demo data automatically when starting with the in-memory database.
   autoDemoData: env('DEMO_DATA', '1') !== '0',
+  // Tally connector (connector/ in the repo, installed on MCI's Tally server) and the Tally dashboard.
+  tally: {
+    // Shared secret the connector sends in the X-Tally-Key header. Empty = connector intake turned off.
+    connectorKey: env('TALLY_CONNECTOR_KEY', ''),
+    // Optional: only these client IPs may send data (comma-separated). Empty = any IP with the key.
+    allowedIps: env('TALLY_ALLOWED_IPS', '')
+      .split(/[;,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    // Emails that always see the Tally dashboard (comma-separated). They can give it to others in Settings → Users.
+    users: env('TALLY_USERS', '')
+      .split(/[;,\s]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
 };
+
+/** The Tally connector may send data (a key is set). */
+export const tallyConnectorEnabled = (): boolean => config.tally.connectorKey.length > 0;
 
 /** Microsoft sign-in has everything it needs. */
 export const microsoftConfigured = (): boolean => {
@@ -157,6 +175,8 @@ export function configWarnings(): string[] {
     if (someMicrosoft && !microsoftConfigured())
       warnings.push('Microsoft sign-in is only partly set up — it needs ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET and ENTRA_REDIRECT_URI');
     if (!config.passwordLoginSetting && !microsoftConfigured()) warnings.push('PASSWORD_LOGIN=false is ignored until Microsoft sign-in is set up');
+    if (config.tally.connectorKey && config.tally.connectorKey.length < 32)
+      warnings.push('TALLY_CONNECTOR_KEY is shorter than 32 characters — use a longer random string');
     if (config.quickLogin) warnings.push('QUICK_LOGIN is on — anyone who can open the site can sign in as an admin. Never use it on the live server');
   }
   return warnings;

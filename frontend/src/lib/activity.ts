@@ -25,6 +25,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'admin.created': 'Admin user added',
   'admin.deleted': 'Admin user removed',
   'admin.password_changed': 'Password changed',
+  'admin.tally_granted': 'Tally dashboard access given',
+  'admin.tally_revoked': 'Tally dashboard access removed',
   'export.xlsx': 'Excel export downloaded',
   'demo.loaded': 'Demo data loaded',
   'demo.cleared': 'Demo data removed',

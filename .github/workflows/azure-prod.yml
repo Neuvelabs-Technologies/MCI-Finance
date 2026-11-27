@@ -20,6 +20,8 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+      # The Tally connector runs on MCI's Tally server, not in the App Service (see docs/TALLY.md)
+      - 'connector/**'
   workflow_dispatch:
 
 permissions:

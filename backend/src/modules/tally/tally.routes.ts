@@ -1,0 +1,25 @@
+import express, { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { requireAdmin } from '../../middlewares/auth.middleware.js';
+import * as connector from './tally.connector.js';
+import * as controller from './tally.controller.js';
+
+// /api/tally/connector/* — the Tally connector on MCI's Tally server (X-Tally-Key, larger bodies).
+// Mounted before the app's 1 MB JSON parser, so it parses its own bodies.
+const connectorLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: true, legacyHeaders: false });
+
+export const connectorRouter = Router();
+connectorRouter.use(connectorLimiter, connector.requireConnectorKey, express.json({ limit: '25mb' }));
+connectorRouter.get('/state', connector.state);
+connectorRouter.post('/ledgers', connector.ingestLedgers);
+connectorRouter.post('/vouchers', connector.ingestVouchers);
+connectorRouter.post('/present', connector.markPresent);
+connectorRouter.post('/sync-log', connector.logSync);
+
+// /api/tally/* — the dashboard, for signed-in admins who were given Tally access.
+export const dashboardRouter = Router();
+dashboardRouter.use(requireAdmin, controller.requireTallyAccess);
+dashboardRouter.get('/companies', controller.companies);
+dashboardRouter.get('/summary', controller.summary);
+dashboardRouter.get('/vouchers', controller.vouchers);
+dashboardRouter.get('/ledgers', controller.ledgerList);

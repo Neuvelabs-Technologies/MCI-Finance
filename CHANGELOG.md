@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0 — unreleased
+
+### New
+- **Tally reports** (`/admin/tally`). Income, expenses, net result, receivables, payables and cash & bank; income and expenses by month; top customers; who owes MCI and whom MCI owes; every voucher (with its ledger lines) and every ledger, searchable. Period: this year, last 12 months, last year or all dates. Read-only: nothing changes Tally.
+  - **Only for chosen users.** Emails in the `TALLY_USERS` server setting always have it. They can switch it on or off for other users in **Settings → Users** (new "Tally reports" column, shown only to them). Everyone else doesn't see the menu item, and the API refuses them (403). Changes are recorded in Activity.
+- **Tally connector** (`connector/`): a PowerShell script for MCI's Tally server. Every 15 minutes it reads ledgers and new or changed vouchers from TallyPrime's XML port (export only) and sends them to `/api/tally/connector/*` with its own key (`TALLY_CONNECTOR_KEY`, optionally limited to `TALLY_ALLOWED_IPS`). Once a day it flags vouchers and ledgers deleted in Tally; nothing is ever deleted in MCI Finance. Setup and hand-over: [docs/TALLY.md](docs/TALLY.md).
+
+### Changed
+- Pushes that only change `connector/` don't redeploy the App Service.
+
 ## 1.6.0 — 2026-11-21
 
 ### New
