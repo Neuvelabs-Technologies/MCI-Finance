@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import type { TallyAmountRow, TallyCompany, TallySummary } from '@/types';
 import { Input } from '@/components/ui/input';
 import { ConnectorPanel } from './ConnectorPanel';
+import { GroupPl } from './GroupPl';
 import { TallyReports } from './TallyReports';
 import { TallyLedgers, TallyVouchers } from './TallyTables';
 import { money, moneyShort, moneyWhole } from './money';
@@ -77,7 +78,7 @@ const SOURCE_LABEL: Record<string, string> = { gold: 'Tally Gold', erp9: 'Tally 
 const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
 const companyKey = (c: { source: string; company: string }) => `${c.source}|${c.company}`;
 
-const TABS = ['overview', 'reports', 'vouchers', 'ledgers'] as const;
+const TABS = ['overview', 'reports', 'grouppl', 'vouchers', 'ledgers'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function TallyDashboard() {
@@ -195,6 +196,7 @@ export default function TallyDashboard() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="reports">Reports</TabsTrigger>
+            <TabsTrigger value="grouppl">Group P&L</TabsTrigger>
             <TabsTrigger value="vouchers">Vouchers</TabsTrigger>
             <TabsTrigger value="ledgers">Ledgers</TabsTrigger>
           </TabsList>
@@ -203,6 +205,9 @@ export default function TallyDashboard() {
           </TabsContent>
           <TabsContent value="reports">
             <TallyReports key={dataKey} source={selected.source} company={selected.company} from={range.from} to={range.to} periodLabel={range.label} />
+          </TabsContent>
+          <TabsContent value="grouppl">
+            <GroupPl key={`${companyKey(selected)}|${refreshKey}`} source={selected.source} company={selected.company} />
           </TabsContent>
           <TabsContent value="vouchers">
             <TallyVouchers key={dataKey} source={selected.source} company={selected.company} from={range.from} to={range.to} />

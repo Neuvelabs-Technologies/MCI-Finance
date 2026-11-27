@@ -76,7 +76,8 @@ function cleanLedger(r: Record<string, unknown>): LedgerRow | null {
   const guid = text(r.guid, 100);
   const name = text(r.name);
   if (!guid || !name) return null;
-  return { guid, name, alterId: num(r.alterId), parent: text(r.parent), group: text(r.group), opening: num(r.opening), closing: num(r.closing) };
+  const groups = (Array.isArray(r.groups) ? r.groups : []).slice(0, 25).map((g) => text(g)).filter(Boolean);
+  return { guid, name, alterId: num(r.alterId), parent: text(r.parent), group: text(r.group), groups, opening: num(r.opening), closing: num(r.closing) };
 }
 
 function cleanVoucher(r: Record<string, unknown>): VoucherRow | null {
@@ -86,7 +87,16 @@ function cleanVoucher(r: Record<string, unknown>): VoucherRow | null {
   const entries: ITallyEntry[] = (Array.isArray(r.entries) ? r.entries : [])
     .slice(0, 500)
     .filter((e): e is Record<string, unknown> => !!e && typeof e === 'object')
-    .map((e) => ({ ledger: text(e.ledger), group: text(e.group), amount: num(e.amount) }))
+    .map((e) => {
+      const entry: ITallyEntry = { ledger: text(e.ledger), group: text(e.group), amount: num(e.amount) };
+      const centres = (Array.isArray(e.costCentres) ? e.costCentres : [])
+        .slice(0, 200)
+        .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+        .map((c) => ({ name: text(c.name, 200), amount: num(c.amount) }))
+        .filter((c) => c.name);
+      if (centres.length) entry.costCentres = centres;
+      return entry;
+    })
     .filter((e) => e.ledger);
   // The credit side of a balanced voucher equals its total.
   const credit = entries.reduce((s, e) => (e.amount > 0 ? s + e.amount : s), 0);
