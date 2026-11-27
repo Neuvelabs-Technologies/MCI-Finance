@@ -13,33 +13,71 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { fmtDate, fmtDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { TallyAmountRow, TallyCompany, TallySummary } from '@/types';
+import { Input } from '@/components/ui/input';
+import { ConnectorPanel } from './ConnectorPanel';
+import { TallyReports } from './TallyReports';
 import { TallyLedgers, TallyVouchers } from './TallyTables';
 import { money, moneyShort, moneyWhole } from './money';
 
 const PERIODS = {
+  month: 'This month',
+  lastmonth: 'Last month',
+  quarter: 'This quarter',
+  lastquarter: 'Last quarter',
   ytd: 'This year',
-  last12: 'Last 12 months',
   lastyear: 'Last year',
+  last12: 'Last 12 months',
   all: 'All dates',
+  custom: 'Custom dates…',
 } as const;
 type Period = keyof typeof PERIODS;
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const qName = (d: Date) => `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
 
-function periodRange(p: Period): { from?: string; to?: string } {
+/** Dates for a period (calendar quarters: Q1 = January–March), and a label that names them. */
+function periodRange(p: Period, custom: { from?: string; to?: string }): { from?: string; to?: string; label: string } {
   const now = new Date();
   const y = now.getFullYear();
-  if (p === 'ytd') return { from: `${y}-01-01`, to: ymd(now) };
-  if (p === 'lastyear') return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
-  if (p === 'last12') return { from: ymd(new Date(y, now.getMonth() - 11, 1)), to: ymd(now) };
-  return {};
+  const m = now.getMonth();
+  const monthLabel = (d: Date) => d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  switch (p) {
+    case 'month':
+      return { from: ymd(new Date(y, m, 1)), to: ymd(now), label: monthLabel(now) };
+    case 'lastmonth': {
+      const s = new Date(y, m - 1, 1);
+      return { from: ymd(s), to: ymd(new Date(y, m, 0)), label: monthLabel(s) };
+    }
+    case 'quarter': {
+      const s = new Date(y, Math.floor(m / 3) * 3, 1);
+      return { from: ymd(s), to: ymd(now), label: `${qName(s)} (to date)` };
+    }
+    case 'lastquarter': {
+      const s = new Date(y, Math.floor(m / 3) * 3 - 3, 1);
+      return { from: ymd(s), to: ymd(new Date(s.getFullYear(), s.getMonth() + 3, 0)), label: qName(s) };
+    }
+    case 'ytd':
+      return { from: `${y}-01-01`, to: ymd(now), label: `${y} to date` };
+    case 'lastyear':
+      return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, label: String(y - 1) };
+    case 'last12':
+      return { from: ymd(new Date(y, m - 11, 1)), to: ymd(now), label: 'Last 12 months' };
+    case 'custom':
+      return {
+        from: custom.from,
+        to: custom.to,
+        label: custom.from || custom.to ? `${custom.from ? fmtDate(custom.from) : 'Start'} – ${custom.to ? fmtDate(custom.to) : 'today'}` : 'All dates',
+      };
+    default:
+      return { label: 'All dates' };
+  }
 }
 
 const SOURCE_LABEL: Record<string, string> = { gold: 'Tally Gold', erp9: 'Tally ERP 9' };
 const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
 const companyKey = (c: { source: string; company: string }) => `${c.source}|${c.company}`;
 
-const TABS = ['overview', 'vouchers', 'ledgers'] as const;
+const TABS = ['overview', 'reports', 'vouchers', 'ledgers'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function TallyDashboard() {
@@ -49,6 +87,8 @@ export default function TallyDashboard() {
 
   const tab: Tab = (TABS as readonly string[]).includes(params.get('tab') ?? '') ? (params.get('tab') as Tab) : 'overview';
   const period: Period = (params.get('period') as Period) in PERIODS ? (params.get('period') as Period) : 'ytd';
+  const range = periodRange(period, { from: params.get('from') ?? undefined, to: params.get('to') ?? undefined });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const set = useCallback(
     (patch: Record<string, string>) => {
@@ -79,7 +119,14 @@ export default function TallyDashboard() {
     return companies.find((c) => companyKey(c) === params.get('c')) ?? companies.find((c) => c.source === 'gold') ?? companies[0];
   }, [companies, params]);
 
+  // A sync finished: reload companies and the figures on screen.
+  const onSynced = useCallback(() => {
+    void loadCompanies();
+    setRefreshKey((n) => n + 1);
+  }, [loadCompanies]);
+
   if (error) return <ErrorState error={error} onRetry={loadCompanies} />;
+  const dataKey = selected ? `${companyKey(selected)}|${range.from ?? ''}|${range.to ?? ''}|${refreshKey}` : '';
 
   return (
     <>
@@ -116,10 +163,19 @@ export default function TallyDashboard() {
                   ))}
                 </SelectContent>
               </Select>
+              {period === 'custom' ? (
+                <span className="flex items-center gap-2">
+                  <Input type="date" className="w-40" aria-label="From date" value={params.get('from') ?? ''} onChange={(e) => set({ from: e.target.value })} />
+                  <span className="text-muted-foreground">to</span>
+                  <Input type="date" className="w-40" aria-label="To date" value={params.get('to') ?? ''} onChange={(e) => set({ to: e.target.value })} />
+                </span>
+              ) : null}
             </>
           ) : null
         }
       />
+
+      <ConnectorPanel source={selected?.source ?? 'gold'} onSynced={onSynced} />
 
       {!companies ? (
         <LoadingState rows={4} />
@@ -127,7 +183,7 @@ export default function TallyDashboard() {
         <EmptyState
           icon={Database}
           title="No Tally data yet"
-          description="The Tally connector has not sent anything to this server. Once it runs on the Tally server (with the company open in Tally), figures appear here within 15 minutes."
+          description="No accounts have arrived from Tally yet. The panel above says why (for example, Tally not open, or no company loaded). Figures appear here after the first sync."
           action={
             <Button variant="outline" onClick={loadCompanies}>
               <RefreshCw /> Check again
@@ -138,17 +194,21 @@ export default function TallyDashboard() {
         <Tabs value={tab} onValueChange={(v) => set({ tab: v })}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="vouchers">Vouchers</TabsTrigger>
             <TabsTrigger value="ledgers">Ledgers</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
-            <Overview key={`${companyKey(selected)}|${period}`} company={selected} range={periodRange(period)} periodLabel={PERIODS[period]} />
+            <Overview key={dataKey} company={selected} range={range} periodLabel={range.label} />
+          </TabsContent>
+          <TabsContent value="reports">
+            <TallyReports key={dataKey} source={selected.source} company={selected.company} from={range.from} to={range.to} periodLabel={range.label} />
           </TabsContent>
           <TabsContent value="vouchers">
-            <TallyVouchers key={companyKey(selected)} source={selected.source} company={selected.company} {...periodRange(period)} />
+            <TallyVouchers key={dataKey} source={selected.source} company={selected.company} from={range.from} to={range.to} />
           </TabsContent>
           <TabsContent value="ledgers">
-            <TallyLedgers key={companyKey(selected)} source={selected.source} company={selected.company} />
+            <TallyLedgers key={`${companyKey(selected)}|${refreshKey}`} source={selected.source} company={selected.company} />
           </TabsContent>
         </Tabs>
       )}

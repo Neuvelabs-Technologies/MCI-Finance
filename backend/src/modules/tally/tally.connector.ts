@@ -1,7 +1,7 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { config, tallyConnectorEnabled } from '../../config/env.js';
-import { type ITallyEntry, type ITallyLedger, type ITallyVoucher, TallyLedger, TallySync, TallyVoucher } from '../../models/Tally.js';
+import { type ITallyEntry, type ITallyLedger, type ITallyVoucher, TallyConnector, TallyLedger, TallySync, TallyVoucher } from '../../models/Tally.js';
 import { badRequest } from '../../utils/ApiError.js';
 import { str } from '../../utils/http.js';
 
@@ -55,7 +55,7 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
 };
 
-/** "2026-04-01" or Tally's "20260401" → midnight UTC that day. */
+/** "2026-04-01" or Tally's "20260401" â†’ midnight UTC that day. */
 export function tallyDate(v: unknown): Date | null {
   const m = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(str(v).trim());
   if (!m) return null;
@@ -109,7 +109,7 @@ function cleanVoucher(r: Record<string, unknown>): VoucherRow | null {
 
 // ---------- handlers ----------
 
-/** POST /api/tally/connector/ledgers { source, company, ledgers: [...] } — every ledger, every run (balances move). */
+/** POST /api/tally/connector/ledgers { source, company, ledgers: [...] } â€” every ledger, every run (balances move). */
 export async function ingestLedgers(req: Request, res: Response) {
   const t = target(req.body);
   const input = rows(req.body?.ledgers, 20000, 'ledgers');
@@ -122,7 +122,7 @@ export async function ingestLedgers(req: Request, res: Response) {
   res.json({ ok: true, received: input.length, skipped: input.length - clean.length, added: r?.upsertedCount ?? 0, updated: r?.modifiedCount ?? 0 });
 }
 
-/** POST /api/tally/connector/vouchers { source, company, vouchers: [...] } — new and changed vouchers. */
+/** POST /api/tally/connector/vouchers { source, company, vouchers: [...] } â€” new and changed vouchers. */
 export async function ingestVouchers(req: Request, res: Response) {
   const t = target(req.body);
   const input = rows(req.body?.vouchers, 5000, 'vouchers');
@@ -138,8 +138,8 @@ export async function ingestVouchers(req: Request, res: Response) {
 /**
  * POST /api/tally/connector/present { source, company, kind: "ledger" | "voucher", guids: [...], force? }
  * Every GUID that exists in Tally right now. Records not in the list are flagged deletedInTally
- * (kept, never deleted). Refuses a list much shorter than what we hold — that usually means Tally
- * answered for the wrong period or a half-loaded company — unless force is true.
+ * (kept, never deleted). Refuses a list much shorter than what we hold â€” that usually means Tally
+ * answered for the wrong period or a half-loaded company â€” unless force is true.
  */
 export async function markPresent(req: Request, res: Response) {
   const t = target(req.body);
@@ -164,7 +164,41 @@ export async function markPresent(req: Request, res: Response) {
   res.json({ ok: true, flaggedDeleted: gone.modifiedCount, restored: back.modifiedCount });
 }
 
-/** GET /api/tally/connector/state?source=&company= — where the connector should carry on from. */
+const STATUSES = ['synced', 'syncing', 'idle', 'no_company', 'tally_not_running', 'tally_not_responding', 'wrong_tally', 'error'] as const;
+
+/**
+ * POST /api/tally/connector/heartbeat â€” every connector run, whatever happened (even with no company open),
+ * so the dashboard can say what's going on. Answers whether someone pressed "Sync now".
+ * { source, status, message?, companies?, tally?: { product, user, port }, host?, connectorVersion?,
+ *   checkMinutes?, syncMinutes?, startingRequestedSync?, synced? }
+ */
+export async function heartbeat(req: Request, res: Response) {
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const source = target({ source: b.source, company: '-' }).source;
+  const status = (STATUSES as readonly string[]).includes(str(b.status)) ? str(b.status) : 'error';
+  const tally = (b.tally && typeof b.tally === 'object' ? b.tally : {}) as Record<string, unknown>;
+  const set: Record<string, unknown> = {
+    lastSeenAt: new Date(),
+    status,
+    message: text(b.message, 500) || undefined,
+    companies: (Array.isArray(b.companies) ? b.companies : []).slice(0, 50).map((c) => text(c, 200)).filter(Boolean),
+    tally: { product: text(tally.product, 80) || undefined, user: text(tally.user, 100) || undefined, port: num(tally.port) || undefined },
+    host: text(b.host, 100) || undefined,
+    connectorVersion: text(b.connectorVersion, 40) || undefined,
+    checkMinutes: num(b.checkMinutes) || undefined,
+    syncMinutes: num(b.syncMinutes) || undefined,
+  };
+  if (b.synced === true) set.lastSyncAt = new Date();
+  // The connector is starting the sync someone asked for: clear the request.
+  if (b.startingRequestedSync === true) {
+    set.syncRequestedAt = null;
+    set.syncRequestedBy = null;
+  }
+  const doc = await TallyConnector.findOneAndUpdate({ source }, { $set: set, $setOnInsert: { source } }, { upsert: true, returnDocument: 'after' }).lean();
+  res.json({ ok: true, syncRequested: !!doc?.syncRequestedAt });
+}
+
+/** GET /api/tally/connector/state?source=&company= â€” where the connector should carry on from. */
 export async function state(req: Request, res: Response) {
   const t = target(req.query);
   const [last, lastSync] = await Promise.all([

@@ -163,6 +163,33 @@ export interface TallyLedger {
   closing: number;
 }
 
+export type TallyConnectorState = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'error';
+
+/** What the connector on the Tally server last reported (it checks in every few minutes). */
+export interface TallyConnectorStatus {
+  source: string;
+  lastSeenAt: string;
+  status: TallyConnectorState;
+  message?: string;
+  companies: string[];
+  tally: { product?: string; user?: string; port?: number };
+  host?: string;
+  connectorVersion?: string;
+  checkMinutes?: number;
+  syncMinutes?: number;
+  lastSyncAt?: string;
+  syncRequestedAt?: string | null;
+  syncRequestedBy?: string | null;
+}
+
+export interface TallyReport {
+  source: string;
+  company: string;
+  period: { from: string | null; to: string | null };
+  pnl: { group: string; kind: 'income' | 'expense'; total: number; ledgers: { name: string; amount: number }[] }[];
+  customers: { party: string; amount: number; count: number; last: string }[];
+}
+
 export interface TallyPage<T> {
   items: T[];
   total: number;
