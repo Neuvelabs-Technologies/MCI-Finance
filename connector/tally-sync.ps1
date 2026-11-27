@@ -38,7 +38,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.2.2'
+$ConnectorVersion = '1.2.3'
 # Bumped when vouchers carry more than before: the next sync then re-reads every voucher once.
 $DataVersion = 2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -387,7 +387,9 @@ function Sync-Company([string]$Company, [bool]$RunPresenceCheck, [bool]$Refetch)
 
   if ($RunPresenceCheck) {
     $guids = New-Object System.Collections.ArrayList
-    foreach ($w in Get-MonthWindows) {
+    # Assign first: looping straight over Get-MonthWindows would get the whole list as one item.
+    $allWindows = Get-MonthWindows
+    foreach ($w in $allWindows) {
       foreach ($n in Get-TallyCollection -Company $Company -Type 'Voucher' -Fetch 'GUID' -From $w[0] -To $w[1] -Dated) {
         $g = Get-Text $n 'GUID'; if ($g) { [void]$guids.Add($g) }
       }
