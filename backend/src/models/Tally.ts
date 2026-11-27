@@ -200,3 +200,34 @@ export const TallyConnector = model<ITallyConnector>('TallyConnector', TallyConn
 export const TallyLedger = model<ITallyLedger>('TallyLedger', TallyLedgerSchema);
 export const TallyVoucher = model<ITallyVoucher>('TallyVoucher', TallyVoucherSchema);
 export const TallySync = model<ITallySync>('TallySync', TallySyncSchema);
+
+/**
+ * Ledgers hidden from every report (a clean-up of old, unused ledgers). Nothing changes in Tally and nothing is deleted
+ * here. Each entry is a ledger code ("1000147") or a full ledger name; a code hides every ledger whose name starts
+ * with it, as long as the code isn't just the start of a longer number. A deleted Tally group hides every ledger under
+ * it. Deleting is soft: taking an entry or group off the list brings the ledgers back. One record per Tally source + company.
+ */
+export interface ITallyHiddenLedgers {
+  source: string;
+  company: string;
+  entries: string[];
+  /** Tally groups deleted from reports: every ledger under them (at any depth) is hidden too. */
+  groups: string[];
+  updatedAt?: Date;
+  updatedBy?: string;
+}
+
+const TallyHiddenLedgersSchema = new Schema<ITallyHiddenLedgers>(
+  {
+    source: { type: String, required: true },
+    company: { type: String, required: true },
+    entries: { type: [String], default: [] },
+    groups: { type: [String], default: [] },
+    updatedAt: Date,
+    updatedBy: String,
+  },
+  { versionKey: false }
+);
+TallyHiddenLedgersSchema.index({ source: 1, company: 1 }, { unique: true });
+
+export const TallyHiddenLedgers = model<ITallyHiddenLedgers>('TallyHiddenLedgers', TallyHiddenLedgersSchema);

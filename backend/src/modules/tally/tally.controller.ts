@@ -6,6 +6,7 @@ import { badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { escapeRegex, str } from '../../utils/http.js';
 import { tallyDate, target } from './tally.connector.js';
+import { hiddenLedgerNames } from './tally.hidden.js';
 
 // The Tally dashboard (signed-in admins with Tally access only).
 // Tally amounts are credit-positive: income ledgers are positive, expenses and assets negative.
@@ -84,11 +85,12 @@ export async function summary(req: Request, res: Response) {
   const p = period(req.query);
   const vMatch = { ...t, ...counted, ...p.match };
   const plGroups = [...GROUPS.income, ...GROUPS.expense];
+  const hidden = await hiddenLedgerNames(t);
 
   const monthlyPipeline: PipelineStage[] = [
     { $match: vMatch },
     { $unwind: '$entries' },
-    { $match: { 'entries.group': { $in: plGroups } } },
+    { $match: { 'entries.group': { $in: plGroups }, 'entries.ledger': { $nin: hidden } } },
     {
       $group: {
         _id: { month: { $dateToString: { format: '%Y-%m', date: '$date' } }, income: { $in: ['$entries.group', GROUPS.income] } },
@@ -100,7 +102,7 @@ export async function summary(req: Request, res: Response) {
   const [monthlyRaw, topCustomers, byType, ledgers, lastSyncs, voucherCount] = await Promise.all([
     TallyVoucher.aggregate<{ _id: { month: string; income: boolean }; amount: number }>(monthlyPipeline),
     TallyVoucher.aggregate<{ _id: string; amount: number; count: number }>([
-      { $match: { ...vMatch, baseType: 'Sales', party: { $ne: '' } } },
+      { $match: { ...vMatch, baseType: 'Sales', party: { $nin: ['', ...hidden] } } },
       { $group: { _id: '$party', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
       { $sort: { amount: -1 } },
       { $limit: 10 },
@@ -110,7 +112,7 @@ export async function summary(req: Request, res: Response) {
       { $group: { _id: '$baseType', amount: { $sum: '$amount' }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
-    TallyLedger.find({ ...t, ...live, group: { $in: [...GROUPS.receivable, ...GROUPS.payable, ...GROUPS.cash] } })
+    TallyLedger.find({ ...t, ...live, name: { $nin: hidden }, group: { $in: [...GROUPS.receivable, ...GROUPS.payable, ...GROUPS.cash] } })
       .select('name group closing')
       .lean(),
     TallySync.find(t).sort({ at: -1 }).limit(8).lean(),
@@ -193,7 +195,8 @@ export async function vouchers(req: Request, res: Response) {
 export async function ledgerList(req: Request, res: Response) {
   const t = target(req.query);
   const pg = page(req.query);
-  const filter: Record<string, unknown> = { ...t, ...live };
+  const hidden = await hiddenLedgerNames(t);
+  const filter: Record<string, unknown> = { ...t, ...live, name: { $nin: hidden } };
   const group = str(req.query.group).trim();
   if (group) filter.group = group;
   const q = str(req.query.q).trim().slice(0, 100);
@@ -201,9 +204,9 @@ export async function ledgerList(req: Request, res: Response) {
   const [items, total, groups] = await Promise.all([
     TallyLedger.find(filter).sort({ name: 1 }).skip(pg.skip).limit(pg.limit).lean(),
     TallyLedger.countDocuments(filter),
-    TallyLedger.distinct('group', { ...t, ...live }),
+    TallyLedger.distinct('group', { ...t, ...live, name: { $nin: hidden } }),
   ]);
-  res.json({ items, total, page: pg.page, limit: pg.limit, groups: groups.filter(Boolean).sort() });
+  res.json({ items, total, page: pg.page, limit: pg.limit, groups: groups.filter(Boolean).sort(), hidden: hidden.length });
 }
 
 /** GET /api/tally/status — what each connector last reported (Tally open? which company? syncing?). */
@@ -256,15 +259,16 @@ export async function report(req: Request, res: Response) {
   const p = period(req.query);
   const vMatch = { ...t, ...counted, ...p.match };
   const plGroups = [...GROUPS.income, ...GROUPS.expense];
+  const hidden = await hiddenLedgerNames(t);
   const [byLedger, customers] = await Promise.all([
     TallyVoucher.aggregate<{ _id: { group: string; ledger: string }; amount: number }>([
       { $match: vMatch },
       { $unwind: '$entries' },
-      { $match: { 'entries.group': { $in: plGroups } } },
+      { $match: { 'entries.group': { $in: plGroups }, 'entries.ledger': { $nin: hidden } } },
       { $group: { _id: { group: '$entries.group', ledger: '$entries.ledger' }, amount: { $sum: '$entries.amount' } } },
     ]),
     TallyVoucher.aggregate<{ _id: string; amount: number; count: number; last: Date }>([
-      { $match: { ...vMatch, baseType: 'Sales', party: { $ne: '' } } },
+      { $match: { ...vMatch, baseType: 'Sales', party: { $nin: ['', ...hidden] } } },
       { $group: { _id: '$party', amount: { $sum: '$amount' }, count: { $sum: 1 }, last: { $max: '$date' } } },
       { $sort: { amount: -1 } },
       { $limit: 500 },

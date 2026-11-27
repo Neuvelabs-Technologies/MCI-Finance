@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, EyeOff, Search } from 'lucide-react';
 import { tallyApi } from '@/api/tally.api';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fmtDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { TallyLedger, TallyVoucher } from '@/types';
+import { HiddenLedgersDialog } from './HiddenLedgers';
 import { money } from './money';
 
 const LIMIT = 50;
@@ -219,8 +220,9 @@ export function TallyLedgers({ source, company }: { source: string; company: str
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<{ items: TallyLedger[]; total: number; groups: string[] } | null>(null);
+  const [data, setData] = useState<{ items: TallyLedger[]; total: number; groups: string[]; hidden: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [hiddenOpen, setHiddenOpen] = useState(false);
   const q = useDebounced(search);
 
   const load = useCallback(async () => {
@@ -240,21 +242,30 @@ export function TallyLedgers({ source, company }: { source: string; company: str
 
   return (
     <div className="flex flex-col gap-4">
-      <Toolbar
-        search={search}
-        onSearch={(s) => {
-          setSearch(s);
-          setPage(1);
-        }}
-        placeholder="Search ledger or parent group…"
-        filter={group}
-        onFilter={(g) => {
-          setGroup(g);
-          setPage(1);
-        }}
-        options={data?.groups ?? []}
-        allLabel="All groups"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <Toolbar
+            search={search}
+            onSearch={(s) => {
+              setSearch(s);
+              setPage(1);
+            }}
+            placeholder="Search ledger or parent group…"
+            filter={group}
+            onFilter={(g) => {
+              setGroup(g);
+              setPage(1);
+            }}
+            options={data?.groups ?? []}
+            allLabel="All groups"
+          />
+        </div>
+        <Button variant="outline" onClick={() => setHiddenOpen(true)}>
+          <EyeOff className="size-4" aria-hidden />
+          Hidden ledgers{data?.hidden ? ` (${data.hidden})` : ''}
+        </Button>
+      </div>
+      <HiddenLedgersDialog source={source} company={company} open={hiddenOpen} onOpenChange={setHiddenOpen} onSaved={load} />
       {!data ? (
         <LoadingState rows={6} />
       ) : (

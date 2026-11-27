@@ -5,6 +5,7 @@ import { importUpload } from '../../middlewares/upload.middleware.js';
 import * as groupPl from '../grouppl/grouppl.controller.js';
 import * as connector from './tally.connector.js';
 import * as controller from './tally.controller.js';
+import * as hidden from './tally.hidden.js';
 
 // /api/tally/connector/* — the Tally connector on MCI's Tally server (X-Tally-Key, larger bodies).
 // Mounted before the app's 1 MB JSON parser, so it parses its own bodies.
@@ -30,6 +31,10 @@ dashboardRouter.get('/status', controller.status);
 dashboardRouter.post('/sync-request', controller.requestSync);
 dashboardRouter.put('/auto-sync', controller.setAutoSync);
 dashboardRouter.get('/report', controller.report);
+dashboardRouter.get('/hidden-ledgers', hidden.getHidden);
+dashboardRouter.put('/hidden-ledgers', hidden.saveHidden);
+dashboardRouter.post('/hidden-ledgers/delete', hidden.deleteOne);
+dashboardRouter.post('/hidden-ledgers/restore', hidden.restoreOne);
 
 // Group P&L: actual from Tally vs the uploaded forecast.
 dashboardRouter.get('/group-pl', groupPl.report);

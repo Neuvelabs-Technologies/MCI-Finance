@@ -496,7 +496,28 @@ export interface GroupPlSetupResponse {
   accounts: { code: string; name: string; treatment: string; income: boolean }[];
   treatments: string[];
   serviceLines: string[];
-  ledgers: { name: string; parent: string; group: string; groups: string[]; amount: number; suggested: string | null }[];
-  groups: { name: string; above: string[] }[];
+  /** `pl`: under an income/expense group (or already linked). Balance-sheet ledgers are shown only on request. */
+  ledgers: { name: string; parent: string; group: string; groups: string[]; pl: boolean; amount: number; suggested: string | null }[];
+  groups: { name: string; above: string[]; pl: boolean; ledgers: number }[];
+  /** Soft-deleted from every report; can be brought back. */
+  deleted: {
+    groups: { name: string; ledgers: number }[];
+    ledgers: { name: string; group: string; closing: number; entry: string | null; byGroup: string | null }[];
+  };
   costCentres: { name: string; amount: number; lines: number; last: string }[];
+}
+
+/** Ledgers hidden from every Tally report (clean-up of old ledgers; nothing changes in Tally). */
+export interface TallyHiddenLedgers {
+  source: string;
+  company: string;
+  entries: string[];
+  /** Deleted Tally groups, with how many ledgers each hides. */
+  groups: { name: string; ledgers: number }[];
+  ledgers: { name: string; parent: string; group: string; closing: number; deletedInTally: boolean; entry?: string; byGroup?: string }[];
+  unmatched: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+  /** Every ledger (GET only), to preview what an entry hides while it is typed. */
+  all?: { name: string; group: string; closing: number }[];
 }

@@ -1,4 +1,4 @@
-import type { GroupPlReport, GroupPlSetupData, GroupPlSetupResponse, TallyCompany, TallyConnectorStatus, TallyLedger, TallyPage, TallyReport, TallySummary, TallyVoucher } from '@/types';
+import type { GroupPlReport, GroupPlSetupData, GroupPlSetupResponse, TallyCompany, TallyHiddenLedgers, TallyConnectorStatus, TallyLedger, TallyPage, TallyReport, TallySummary, TallyVoucher } from '@/types';
 import { http } from './client';
 
 const BASE = '/api/tally';
@@ -25,10 +25,16 @@ export const tallyApi = {
   companies: () => http.get<{ companies: TallyCompany[] }>(`${BASE}/companies`),
   summary: (q: TallyQuery) => http.get<TallySummary>(`${BASE}/summary?${qs(q)}`),
   vouchers: (q: TallyQuery) => http.get<TallyPage<TallyVoucher> & { types: string[] }>(`${BASE}/vouchers?${qs(q)}`),
-  ledgers: (q: TallyQuery) => http.get<TallyPage<TallyLedger> & { groups: string[] }>(`${BASE}/ledgers?${qs(q)}`),
+  ledgers: (q: TallyQuery) => http.get<TallyPage<TallyLedger> & { groups: string[]; hidden: number }>(`${BASE}/ledgers?${qs(q)}`),
   status: () => http.get<{ connectors: TallyConnectorStatus[]; now: string }>(`${BASE}/status`),
   requestSync: (source: string) => http.post<{ connector: TallyConnectorStatus }>(`${BASE}/sync-request`, { source }),
   setAutoSync: (source: string, enabled: boolean) => http.put<{ connector: TallyConnectorStatus }>(`${BASE}/auto-sync`, { source, enabled }),
+  hiddenLedgers: (t: { source: string; company: string }) => http.get<TallyHiddenLedgers>(`${BASE}/hidden-ledgers?${qs(t)}`),
+  saveHiddenLedgers: (t: { source: string; company: string }, entries: string[]) => http.put<TallyHiddenLedgers>(`${BASE}/hidden-ledgers`, { ...t, entries }),
+  deleteFromReports: (t: { source: string; company: string }, kind: 'ledger' | 'group', name: string) =>
+    http.post<TallyHiddenLedgers>(`${BASE}/hidden-ledgers/delete`, { ...t, kind, name }),
+  restoreToReports: (t: { source: string; company: string }, kind: 'ledger' | 'group', name: string) =>
+    http.post<TallyHiddenLedgers>(`${BASE}/hidden-ledgers/restore`, { ...t, kind, name }),
   report: (q: TallyQuery) => http.get<TallyReport>(`${BASE}/report?${qs(q)}`),
   groupPl: (q: GroupPlQuery) => http.get<GroupPlReport>(`${BASE}/group-pl?${gq(q)}`),
   groupPlExportUrl: (q: GroupPlQuery) => `${BASE}/group-pl/export?${gq(q)}`,

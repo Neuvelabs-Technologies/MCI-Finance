@@ -33,7 +33,7 @@ export function requireConnectorKey(req: Request, res: Response, next: NextFunct
 
 // ---------- input cleaning ----------
 
-interface Target {
+export interface Target {
   source: string;
   company: string;
 }

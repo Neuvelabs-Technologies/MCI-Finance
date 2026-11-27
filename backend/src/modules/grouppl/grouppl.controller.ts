@@ -6,6 +6,7 @@ import { badRequest } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { isId, str, XLSX_MIME } from '../../utils/http.js';
 import { target } from '../tally/tally.connector.js';
+import { hiddenLedgerNames, hiddenState } from '../tally/tally.hidden.js';
 import { CHART, COLUMNS, LEAVES, ROW_BY_CODE, SERVICE_LINES, TREATMENTS } from './chart.js';
 import { type LedgerAmount, PL_GROUPS, computeActual } from './compute.js';
 import { buildGroupPlWorkbook, parseForecast } from './excel.js';
@@ -33,16 +34,18 @@ function yearMonth(q: Request['query']) {
 const emptySetup = (): Pick<IGroupPlSetup, 'accounts' | 'projects' | 'treatments' | 'hr'> => ({ accounts: [], projects: [], treatments: [], hr: [] });
 
 /** Each ledger's total for the period, with its split over cost centres. */
-async function ledgerAmounts(match: Record<string, unknown>): Promise<LedgerAmount[]> {
+async function ledgerAmounts(match: Record<string, unknown>, hidden: string[]): Promise<LedgerAmount[]> {
   const [totals, centres] = await Promise.all([
     TallyVoucher.aggregate<{ _id: string; group: string; amount: number }>([
       { $match: match },
       { $unwind: '$entries' },
+      { $match: { 'entries.ledger': { $nin: hidden } } },
       { $group: { _id: '$entries.ledger', group: { $first: '$entries.group' }, amount: { $sum: '$entries.amount' } } },
     ]),
     TallyVoucher.aggregate<{ _id: { ledger: string; centre: string }; amount: number }>([
       { $match: { ...match, 'entries.costCentres.0': { $exists: true } } },
       { $unwind: '$entries' },
+      { $match: { 'entries.ledger': { $nin: hidden } } },
       { $unwind: '$entries.costCentres' },
       { $group: { _id: { ledger: '$entries.ledger', centre: '$entries.costCentres.name' }, amount: { $sum: '$entries.costCentres.amount' } } },
     ]),
@@ -59,10 +62,11 @@ async function ledgerAmounts(match: Record<string, unknown>): Promise<LedgerAmou
 async function load(req: Request) {
   const t = target(req.query);
   const p = yearMonth(req.query);
+  const hidden = await hiddenLedgerNames(t);
   const [setupDoc, ledgers, amounts, forecasts] = await Promise.all([
     GroupPlSetup.findOne(t).lean(),
-    TallyLedger.find({ ...t, ...live }).select('name parent groups').lean(),
-    ledgerAmounts({ ...t, ...counted, date: { $gte: p.from, $lte: p.to } }),
+    TallyLedger.find({ ...t, ...live, name: { $nin: hidden } }).select('name parent groups').lean(),
+    ledgerAmounts({ ...t, ...counted, date: { $gte: p.from, $lte: p.to } }, hidden),
     GroupPlForecast.find({ ...t, year: p.year }).select('-rows').sort({ uploadedAt: -1 }).lean(),
   ]);
   const setup = setupDoc ?? emptySetup();
@@ -120,13 +124,16 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 export async function getSetup(req: Request, res: Response) {
   const t = target(req.query);
   const p = yearMonth(req.query);
+  const deleted = await hiddenState(t);
+  const hidden = deleted.ledgers.map((l) => l.name);
   const [setupDoc, ledgers, amounts, centres] = await Promise.all([
     GroupPlSetup.findOne(t).lean(),
-    TallyLedger.find({ ...t, ...live }).select('name parent group groups').sort({ name: 1 }).lean(),
-    ledgerAmounts({ ...t, ...counted, date: { $gte: p.from, $lte: p.to } }),
+    TallyLedger.find({ ...t, ...live, name: { $nin: hidden } }).select('name parent group groups').sort({ name: 1 }).lean(),
+    ledgerAmounts({ ...t, ...counted, date: { $gte: p.from, $lte: p.to } }, hidden),
     TallyVoucher.aggregate<{ _id: string; amount: number; lines: number; last: Date }>([
       { $match: { ...t, ...counted, 'entries.costCentres.0': { $exists: true } } },
       { $unwind: '$entries' },
+      { $match: { 'entries.ledger': { $nin: hidden } } },
       { $unwind: '$entries.costCentres' },
       { $group: { _id: '$entries.costCentres.name', amount: { $sum: '$entries.costCentres.amount' }, lines: { $sum: 1 }, last: { $max: '$date' } } },
       { $sort: { last: -1 } },
@@ -137,12 +144,17 @@ export async function getSetup(req: Request, res: Response) {
   const ytd = new Map(amounts.map((a) => [a.ledger, a.amount]));
   const mapped = new Set(setup.accounts.filter((a) => a.kind === 'ledger').map((a) => a.name));
   const byName = new Map(LEAVES.map((l) => [norm(l.name), l.code]));
-  const plLedgers = ledgers.filter((l) => PL_GROUPS.includes(l.group) || mapped.has(l.name) || ytd.has(l.name));
-  const groups = new Map<string, string[]>();
-  for (const l of plLedgers) {
+  // Group accounts are P&L codes, so balance-sheet ledgers (banks, debtors…) are flagged: the screen leaves them out
+  // unless asked. Those with a link already count as P&L so a link is never hidden.
+  const isPl = (l: { name: string; group: string }) => PL_GROUPS.includes(l.group) || mapped.has(l.name);
+  const groups = new Map<string, { above: string[]; pl: boolean; ledgers: number }>();
+  for (const l of ledgers) {
     const chain = l.groups?.length ? l.groups : l.parent ? [l.parent] : [];
     chain.forEach((g, i) => {
-      if (!groups.has(g)) groups.set(g, chain.slice(i + 1));
+      const cur = groups.get(g) ?? { above: chain.slice(i + 1), pl: false, ledgers: 0 };
+      cur.ledgers += 1;
+      cur.pl ||= isPl(l);
+      groups.set(g, cur);
     });
   }
   res.json({
@@ -152,13 +164,17 @@ export async function getSetup(req: Request, res: Response) {
     accounts: LEAVES.map((l) => ({ code: l.code, name: l.name, treatment: l.treatment, income: !!l.income })),
     treatments: TREATMENTS,
     serviceLines: SERVICE_LINES,
-    ledgers: plLedgers.map((l) => {
+    ledgers: ledgers.map((l) => {
       // Suggest an account when the ledger's name carries a code ("A501.100 Office rental") or equals an account name.
       const code = /\b(A5\d\d(?:\.\d{3})?)\b/.exec(l.name)?.[1];
       const suggested = (code && ROW_BY_CODE.get(code)?.kind === 'leaf' ? code : undefined) ?? byName.get(norm(l.name));
-      return { name: l.name, parent: l.parent, group: l.group, groups: l.groups ?? [], amount: Math.round((ytd.get(l.name) ?? 0) * 100) / 100, suggested: suggested ?? null };
+      return { name: l.name, parent: l.parent, group: l.group, groups: l.groups ?? [], pl: isPl(l), amount: Math.round((ytd.get(l.name) ?? 0) * 100) / 100, suggested: suggested ?? null };
     }),
-    groups: [...groups].map(([name, above]) => ({ name, above })).sort((a, b) => a.name.localeCompare(b.name)),
+    groups: [...groups].map(([name, g]) => ({ name, ...g })).sort((a, b) => a.name.localeCompare(b.name)),
+    deleted: {
+      groups: deleted.groups.map((name) => ({ name, ledgers: deleted.ledgers.filter((l) => l.byGroup === name).length })),
+      ledgers: deleted.ledgers.map((l) => ({ name: l.name, group: l.group, closing: l.closing, entry: l.entry ?? null, byGroup: l.byGroup ?? null })),
+    },
     costCentres: centres.map((c) => ({ name: c._id, amount: Math.round(c.amount * 100) / 100, lines: c.lines, last: c.last })),
   });
 }

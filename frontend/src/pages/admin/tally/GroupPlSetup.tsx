@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Sparkles } from 'lucide-react';
+import { RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { errorMessage } from '@/api/client';
 import { tallyApi } from '@/api/tally.api';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
@@ -64,6 +64,16 @@ export function GroupPlSetup({ open, onOpenChange, source, company, year, onSave
     if (open) void load();
   }, [open, load]);
 
+  /** After a delete or bring-back: fresh lists, unsaved links kept. */
+  const refresh = useCallback(async () => {
+    try {
+      setData(await tallyApi.groupPlSetup({ source, company, year }));
+      onSaved();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  }, [source, company, year, onSaved]);
+
   async function save() {
     if (!draft) return;
     setSaving(true);
@@ -99,7 +109,7 @@ export function GroupPlSetup({ open, onOpenChange, source, company, year, onSave
               <TabsTrigger value="hr">HR figures</TabsTrigger>
             </TabsList>
             <TabsContent value="accounts" className="min-h-0">
-              <Accounts data={data} draft={draft} setDraft={setDraft} />
+              <Accounts data={data} draft={draft} setDraft={setDraft} target={{ source, company }} onChanged={refresh} />
             </TabsContent>
             <TabsContent value="projects" className="min-h-0">
               <Projects data={data} draft={draft} setDraft={setDraft} />
@@ -149,113 +159,230 @@ function AccountSelect({ value, onChange, accounts, empty = 'Not linked' }: { va
   );
 }
 
-function Accounts({ data, draft, setDraft }: TabProps) {
-  const [mode, setMode] = useState<'ledger' | 'group'>('ledger');
+function Accounts({ data, draft, setDraft, target, onChanged }: TabProps & { target: { source: string; company: string }; onChanged: () => Promise<void> }) {
+  const [mode, setMode] = useState<'ledger' | 'group' | 'deleted'>('ledger');
   const [q, setQ] = useState('');
   const [onlyOpen, setOnlyOpen] = useState(false);
+  const [showBs, setShowBs] = useState(false);
+  const [under, setUnder] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
   const map = useMemo(() => new Map(draft.accounts.map((a) => [`${a.kind}|${a.name}`, a.account])), [draft.accounts]);
   const accountName = useMemo(() => new Map(data.accounts.map((a) => [a.code, a.name])), [data.accounts]);
 
   const set = (kind: 'ledger' | 'group', name: string, account: string) =>
     setDraft((d) => d && { ...d, accounts: [...d.accounts.filter((a) => !(a.kind === kind && a.name === name)), ...(account ? [{ kind, name, account }] : [])] });
 
+  const chainOf = (l: GroupPlSetupResponse['ledgers'][number]) => (l.groups.length ? l.groups : [l.parent]);
   /** What a ledger ends up as: its own link, else the nearest linked group above it. */
   const via = (l: GroupPlSetupResponse['ledgers'][number]) => {
-    for (const g of l.groups.length ? l.groups : [l.parent]) {
+    for (const g of chainOf(l)) {
       const a = map.get(`group|${g}`);
       if (a) return { account: a, group: g };
     }
     return null;
   };
+
+  async function act(kind: 'ledger' | 'group', name: string, restore: boolean) {
+    if (!restore) {
+      const n = kind === 'group' ? data.ledgers.filter((l) => chainOf(l).includes(name)).length : 0;
+      const what = kind === 'group' ? `the Tally group "${name}" and the ${n} ledger(s) under it` : `the ledger "${name}"`;
+      if (!window.confirm(`Delete ${what} from every report here?\n\nNothing changes in Tally. You can bring it back from the Deleted list.`)) return;
+    }
+    setBusy(`${kind}|${name}`);
+    try {
+      await (restore ? tallyApi.restoreToReports(target, kind, name) : tallyApi.deleteFromReports(target, kind, name));
+      toast.success(restore ? `"${name}" is back in the reports` : `"${name}" deleted from reports`);
+      await onChanged();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const needle = q.trim().toLowerCase();
-  const ledgers = data.ledgers.filter((l) => (!needle || l.name.toLowerCase().includes(needle) || l.parent.toLowerCase().includes(needle)) && (!onlyOpen || (!map.get(`ledger|${l.name}`) && !via(l))));
-  const groups = data.groups.filter((g) => !needle || g.name.toLowerCase().includes(needle));
-  const suggestions = data.ledgers.filter((l) => l.suggested && !map.get(`ledger|${l.name}`) && !via(l));
-  const unlinked = data.ledgers.filter((l) => !map.get(`ledger|${l.name}`) && !via(l)).length;
+  const scope = data.ledgers.filter((l) => showBs || l.pl);
+  const scopeGroups = data.groups.filter((g) => showBs || g.pl);
+  const ledgers = scope.filter(
+    (l) =>
+      (!under || chainOf(l).includes(under)) &&
+      (!needle || l.name.toLowerCase().includes(needle) || l.parent.toLowerCase().includes(needle)) &&
+      (!onlyOpen || (!map.get(`ledger|${l.name}`) && !via(l)))
+  );
+  const groups = scopeGroups.filter((g) => (!under || g.name === under || g.above.includes(under)) && (!needle || g.name.toLowerCase().includes(needle)));
+  const deletedCount = data.deleted.groups.length + data.deleted.ledgers.filter((l) => !l.byGroup).length;
+  const suggestions = scope.filter((l) => l.suggested && !map.get(`ledger|${l.name}`) && !via(l));
+  const unlinked = data.ledgers.filter((l) => l.pl && !map.get(`ledger|${l.name}`) && !via(l)).length;
+  const bsCount = data.ledgers.filter((l) => !l.pl).length;
+  const del = (kind: 'ledger' | 'group', name: string) => (
+    <Button variant="ghost" size="icon-sm" title="Delete from reports (Tally is not changed)" aria-label={`Delete ${name} from reports`} disabled={busy !== null} onClick={() => act(kind, name, false)}>
+      <Trash2 className="text-muted-foreground" />
+    </Button>
+  );
 
   return (
     <div className="flex flex-col gap-3 pt-3">
       <p className="text-sm text-muted-foreground">
-        Link each income and expense ledger to a group account, or link a whole Tally group: every ledger under it follows, unless the ledger has its own link. Amounts are {data.year} to date.
-        {unlinked ? <b className="text-foreground"> {unlinked} ledger(s) not linked yet.</b> : <b className="text-success"> Every ledger is linked.</b>}
+        Link each income and expense ledger to a group account (the P&L codes). Linking a <b className="text-foreground">Tally group</b> links every ledger under it at once, unless a
+        ledger has its own link. Amounts are {data.year} to date.
+        {unlinked ? <b className="text-foreground"> {unlinked} P&L ledger(s) not linked yet.</b> : <b className="text-success"> Every P&L ledger is linked.</b>}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-border p-0.5">
-          {(['ledger', 'group'] as const).map((m) => (
+          {(['ledger', 'group', 'deleted'] as const).map((m) => (
             <button key={m} type="button" onClick={() => setMode(m)} className={cn('rounded-md px-3 py-1 text-sm', mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
-              {m === 'ledger' ? `Ledgers (${data.ledgers.length})` : `Tally groups (${data.groups.length})`}
+              {m === 'ledger' ? `Ledgers (${scope.length})` : m === 'group' ? `Tally groups (${scopeGroups.length})` : `Deleted (${deletedCount})`}
             </button>
           ))}
         </div>
-        <Input className="h-9 w-64 px-3" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-        {mode === 'ledger' ? (
-          <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Only not linked
-          </label>
-        ) : null}
-        {suggestions.length ? (
-          <Button variant="outline" size="sm" onClick={() => suggestions.forEach((l) => set('ledger', l.name, l.suggested!))}>
-            <Sparkles /> Link {suggestions.length} by name
-          </Button>
-        ) : null}
+        {mode !== 'deleted' ? (
+          <>
+            <Input className="h-9 w-56 px-3" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
+            <select className={cn(selectClass, 'w-64')} value={under} onChange={(e) => setUnder(e.target.value)} aria-label="Filter by Tally group">
+              <option value="">All Tally groups</option>
+              {scopeGroups.map((g) => (
+                <option key={g.name} value={g.name}>
+                  {g.name} ({g.ledgers})
+                </option>
+              ))}
+            </select>
+            {mode === 'ledger' ? (
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Only not linked
+              </label>
+            ) : null}
+            <label className="flex items-center gap-1.5 text-sm" title="Banks, debtors, assets and liabilities: they don't go into the P&L">
+              <input
+                type="checkbox"
+                checked={showBs}
+                onChange={(e) => {
+                  setShowBs(e.target.checked);
+                  setUnder('');
+                }}
+              />{' '}
+              Show balance-sheet ledgers ({bsCount})
+            </label>
+            {suggestions.length ? (
+              <Button variant="outline" size="sm" onClick={() => suggestions.forEach((l) => set('ledger', l.name, l.suggested!))}>
+                <Sparkles /> Link {suggestions.length} by name
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Deleted from every report here (ledger list, balances, P&L, Group P&L). Nothing was changed in Tally.</p>
+        )}
       </div>
       <Scroll>
-        <table className="w-full text-sm">
-          <thead>
-            {mode === 'ledger' ? (
+        {mode === 'deleted' ? (
+          <table className="w-full text-sm">
+            <thead>
               <tr>
-                <Th>Tally ledger</Th>
-                <Th>Under</Th>
-                <Th className="text-right">Amount</Th>
-                <Th className="w-[420px]">Group account</Th>
+                <Th>Deleted</Th>
+                <Th>Kind</Th>
+                <Th className="text-right">Closing</Th>
+                <Th className="w-40" />
               </tr>
-            ) : (
-              <tr>
-                <Th>Tally group</Th>
-                <Th>Under</Th>
-                <Th className="w-[420px]">Group account (for every ledger under it)</Th>
-              </tr>
-            )}
-          </thead>
-          <tbody>
-            {mode === 'ledger'
-              ? ledgers.map((l) => {
-                  const own = map.get(`ledger|${l.name}`) ?? '';
-                  const inherited = own ? null : via(l);
-                  return (
-                    <tr key={l.name} className="border-t border-border/60">
-                      <td className="px-3 py-1.5">{l.name}</td>
-                      <td className="px-3 py-1.5 text-xs text-muted-foreground">{(l.groups.length ? l.groups : [l.parent]).join(' › ')}</td>
-                      <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">{l.amount ? moneyWhole(l.amount) : ''}</td>
+            </thead>
+            <tbody>
+              {data.deleted.groups.map((g) => (
+                <tr key={`g|${g.name}`} className="border-t border-border/60">
+                  <td className="px-3 py-1.5 font-medium">{g.name}</td>
+                  <td className="px-3 py-1.5 text-xs text-muted-foreground">Tally group · hides {g.ledgers} ledger(s)</td>
+                  <td />
+                  <td className="px-3 py-1.5 text-right">
+                    <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act('group', g.name, true)}>
+                      <RotateCcw /> Bring back
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {data.deleted.ledgers.map((l) => (
+                <tr key={`l|${l.name}`} className="border-t border-border/60">
+                  <td className="px-3 py-1.5">{l.name}</td>
+                  <td className="px-3 py-1.5 text-xs text-muted-foreground">{l.byGroup ? `Ledger · with group "${l.byGroup}"` : l.entry && l.entry !== l.name ? `Ledger · by number ${l.entry}` : 'Ledger'}</td>
+                  <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">{l.closing ? moneyWhole(l.closing) : ''}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {l.byGroup ? null : (
+                      <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => act('ledger', l.name, true)}>
+                        <RotateCcw /> Bring back
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!data.deleted.groups.length && !data.deleted.ledgers.length ? (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                    Nothing deleted. Use the bin on a ledger or Tally group to take it out of the reports.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              {mode === 'ledger' ? (
+                <tr>
+                  <Th>Tally ledger</Th>
+                  <Th>Under</Th>
+                  <Th className="text-right">Amount</Th>
+                  <Th className="w-[420px]">Group account</Th>
+                  <Th className="w-10" />
+                </tr>
+              ) : (
+                <tr>
+                  <Th>Tally group</Th>
+                  <Th>Under</Th>
+                  <Th className="text-right">Ledgers</Th>
+                  <Th className="w-[420px]">Group account (for every ledger under it)</Th>
+                  <Th className="w-10" />
+                </tr>
+              )}
+            </thead>
+            <tbody>
+              {mode === 'ledger'
+                ? ledgers.map((l) => {
+                    const own = map.get(`ledger|${l.name}`) ?? '';
+                    const inherited = own ? null : via(l);
+                    return (
+                      <tr key={l.name} className="border-t border-border/60">
+                        <td className="px-3 py-1.5">{l.name}</td>
+                        <td className="px-3 py-1.5 text-xs text-muted-foreground">{chainOf(l).join(' › ')}</td>
+                        <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">{l.amount ? moneyWhole(l.amount) : ''}</td>
+                        <td className="px-3 py-1.5">
+                          <AccountSelect
+                            value={own}
+                            onChange={(v) => set('ledger', l.name, v)}
+                            accounts={data.accounts}
+                            empty={inherited ? `Via group "${inherited.group}": ${inherited.account} · ${accountName.get(inherited.account) ?? ''}` : 'Not linked'}
+                          />
+                        </td>
+                        <td className="px-1 py-1.5">{del('ledger', l.name)}</td>
+                      </tr>
+                    );
+                  })
+                : groups.map((g) => (
+                    <tr key={g.name} className="border-t border-border/60">
+                      <td className="px-3 py-1.5">{g.name}</td>
+                      <td className="px-3 py-1.5 text-xs text-muted-foreground">{g.above.join(' › ') || 'Primary'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{g.ledgers}</td>
                       <td className="px-3 py-1.5">
-                        <AccountSelect
-                          value={own}
-                          onChange={(v) => set('ledger', l.name, v)}
-                          accounts={data.accounts}
-                          empty={inherited ? `Via group "${inherited.group}": ${inherited.account} · ${accountName.get(inherited.account) ?? ''}` : 'Not linked'}
-                        />
+                        <AccountSelect value={map.get(`group|${g.name}`) ?? ''} onChange={(v) => set('group', g.name, v)} accounts={data.accounts} />
                       </td>
+                      <td className="px-1 py-1.5">{del('group', g.name)}</td>
                     </tr>
-                  );
-                })
-              : groups.map((g) => (
-                  <tr key={g.name} className="border-t border-border/60">
-                    <td className="px-3 py-1.5">{g.name}</td>
-                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{g.above.join(' › ') || 'Primary'}</td>
-                    <td className="px-3 py-1.5">
-                      <AccountSelect value={map.get(`group|${g.name}`) ?? ''} onChange={(v) => set('group', g.name, v)} accounts={data.accounts} />
-                    </td>
-                  </tr>
-                ))}
-            {(mode === 'ledger' ? ledgers.length : groups.length) === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
-                  {data.ledgers.length ? 'Nothing matches.' : 'No ledgers from Tally yet. They appear after the first sync.'}
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+                  ))}
+              {(mode === 'ledger' ? ledgers.length : groups.length) === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
+                    {data.ledgers.length ? 'Nothing matches.' : 'No ledgers from Tally yet. They appear after the first sync.'}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        )}
       </Scroll>
     </div>
   );
