@@ -38,7 +38,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.2.0'
+$ConnectorVersion = '1.2.1'
 # Bumped when vouchers carry more than before: the next sync then re-reads every voucher once.
 $DataVersion = 2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -105,7 +105,8 @@ $script:OnlyOneCompany = $false
 
 function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [string]$Extra = '', [datetime]$From = $FromDate, [datetime]$To = (Get-Date).AddYears(1), [int]$TimeoutSec = 300, [switch]$Dated, [string]$Formula = '') {
   $companyVar = if ($Company -and -not $script:OnlyOneCompany) { "<SVCURRENTCOMPANY>$(ConvertTo-XmlText $Company)</SVCURRENTCOMPANY>" } else { '' }
-  $dates = if ($Dated) { "<SVFROMDATE>$($From.ToString('yyyyMMdd'))</SVFROMDATE><SVTODATE>$($To.ToString('yyyyMMdd'))</SVTODATE>" } else { '' }
+  # Tally ignores dates sent as 20261101 and returns its whole current period; '1-Nov-2026' is respected.
+  $dates = if ($Dated) { "<SVFROMDATE TYPE=`"Date`">$($From.ToString('d-MMM-yyyy', $Invariant))</SVFROMDATE><SVTODATE TYPE=`"Date`">$($To.ToString('d-MMM-yyyy', $Invariant))</SVTODATE>" } else { '' }
   $body = @"
 <ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>MCIFinance$Type</ID></HEADER>
 <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>`$`$SysName:XML</SVEXPORTFORMAT>$companyVar
