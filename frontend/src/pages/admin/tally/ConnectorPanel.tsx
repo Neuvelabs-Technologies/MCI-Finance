@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, CheckCircle2, CircleSlash, Clock, Loader2, MonitorX, PlugZap, RefreshCw, ServerOff, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleSlash, Clock, Loader2, MonitorX, PauseCircle, PlugZap, RefreshCw, ServerOff, type LucideIcon } from 'lucide-react';
+import { Switch } from '@/components/ui/controls';
 import { errorMessage } from '@/api/client';
 import { tallyApi } from '@/api/tally.api';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,17 @@ function describe(c: TallyConnectorStatus): View {
       icon: ServerOff,
       title: `Connector offline — last heard from ${relativeTime(c.lastSeenAt)}`,
       help: 'The connector on the Tally server is not running. Usually the Windows user it runs as signed out. MCI IT can set it to run without anyone signed in (docs/TALLY.md, step B).',
+    };
+  }
+  // Switched off on the dashboard: say so first, whatever Tally is doing.
+  if (c.paused) {
+    return {
+      tone: 'warning',
+      icon: PauseCircle,
+      title: 'Automatic sync is off',
+      help: `Switched off by ${c.pausedBy ?? 'someone'} ${relativeTime(c.pausedAt)}. Nothing is read from Tally until it is switched back on${
+        c.status === 'syncing' ? ' (the sync running now stops after the current month)' : ''
+      }. Figures below are as of the last sync.`,
     };
   }
   switch (c.status) {
@@ -132,6 +144,23 @@ export function ConnectorPanel({ source = 'gold', onSynced }: { source?: string;
     if (lastSync) seen.current = lastSync;
   }, [lastSync, onSynced]);
 
+  async function setAutoSync(enabled: boolean) {
+    setBusy(true);
+    try {
+      const r = await tallyApi.setAutoSync(source, enabled);
+      setC(r.connector);
+      toast.success(enabled ? 'Automatic sync is on' : 'Automatic sync is off', {
+        description: enabled
+          ? `The connector starts reading Tally again at its next check (within ${r.connector.checkMinutes ?? 2} minutes).`
+          : 'Nothing is read from Tally until it is switched back on. A sync already running stops after the current month.',
+      });
+    } catch (e) {
+      toast.error(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function syncNow() {
     setBusy(true);
     try {
@@ -165,7 +194,9 @@ export function ConnectorPanel({ source = 'gold', onSynced }: { source?: string;
   const syncEvery = c.syncMinutes ?? 15;
   const requested = !!c.syncRequestedAt;
   const nextSync = c.lastSyncAt ? new Date(new Date(c.lastSyncAt).getTime() + syncEvery * 60000) : null;
-  const nextText = requested
+  const nextText = c.paused
+    ? 'Off — switch automatic sync on'
+    : requested
     ? `Requested ${relativeTime(c.syncRequestedAt)} by ${c.syncRequestedBy ?? 'someone'} — starts within ${c.checkMinutes ?? 2} min`
     : c.status === 'syncing'
       ? 'Running now'
@@ -189,7 +220,11 @@ export function ConnectorPanel({ source = 'gold', onSynced }: { source?: string;
           <Button variant="ghost" size="sm" onClick={() => void load()} aria-label="Refresh status">
             <RefreshCw />
           </Button>
-          <Button size="sm" onClick={() => void syncNow()} disabled={busy || requested || c.status === 'syncing'}>
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm font-semibold" title="Turn off while data is being moved into Tally, so half-moved figures are not read">
+            <Switch checked={!c.paused} disabled={busy} onCheckedChange={(on) => void setAutoSync(on)} aria-label="Automatic sync" />
+            Automatic sync
+          </label>
+          <Button size="sm" onClick={() => void syncNow()} disabled={busy || requested || c.paused || c.status === 'syncing'}>
             {requested ? <Clock /> : <RefreshCw />}
             {requested ? 'Sync requested' : 'Sync now'}
           </Button>

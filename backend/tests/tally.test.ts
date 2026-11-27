@@ -227,7 +227,7 @@ describe('tally connector status and reports', () => {
     expect((await admin.post('/api/tally/sync-request').send({ source: 'gold' })).status).toBe(400);
 
     const hb = await c.post('/heartbeat', { source: 'gold', status: 'no_company', tally: { product: 'TallyPrime', user: 'lisa', port: 9001 }, checkMinutes: 2, syncMinutes: 15 });
-    expect(hb.body).toEqual({ ok: true, syncRequested: false });
+    expect(hb.body).toEqual({ ok: true, paused: false, syncRequested: false });
     let s = await admin.get('/api/tally/status');
     expect(s.body.connectors[0]).toMatchObject({ source: 'gold', status: 'no_company', tally: { product: 'TallyPrime', user: 'lisa' } });
 
@@ -249,5 +249,26 @@ describe('tally connector status and reports', () => {
       { group: 'Indirect Expenses', kind: 'expense', total: 4000, ledgers: [{ name: 'Office Rent', amount: 4000 }] },
     ]);
     expect(r.body.customers[0]).toMatchObject({ party: 'Acme Pharma', amount: 15000, count: 2 });
+  });
+});
+
+describe('automatic sync switch', () => {
+  it('stops the connector syncing (and Sync now) while off, and is recorded', async () => {
+    await TallyConnector.deleteMany({});
+    const c = connector();
+    const admin = await signedInAs(ADMIN_EMAIL);
+    await c.post('/heartbeat', { source: 'gold', status: 'idle' });
+
+    const off = await admin.put('/api/tally/auto-sync').send({ source: 'gold', enabled: false });
+    expect(off.status).toBe(200);
+    expect(off.body.connector).toMatchObject({ paused: true, pausedBy: ADMIN_EMAIL });
+    expect((await c.post('/heartbeat', { source: 'gold', status: 'idle' })).body).toEqual({ ok: true, paused: true, syncRequested: false });
+    expect((await admin.post('/api/tally/sync-request').send({ source: 'gold' })).status).toBe(400);
+
+    const on = await admin.put('/api/tally/auto-sync').send({ source: 'gold', enabled: true });
+    expect(on.body.connector).toMatchObject({ paused: false, pausedBy: null });
+    expect((await admin.post('/api/tally/sync-request').send({ source: 'gold' })).status).toBe(200);
+    expect((await c.post('/heartbeat', { source: 'gold', status: 'idle' })).body).toEqual({ ok: true, paused: false, syncRequested: true });
+    expect((await admin.put('/api/tally/auto-sync').send({ source: 'gold' })).status).toBe(400);
   });
 });

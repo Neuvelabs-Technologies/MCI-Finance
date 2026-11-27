@@ -1,4 +1,4 @@
-﻿import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { PipelineStage } from 'mongoose';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
 import { TallyConnector, TallyLedger, TallySync, TallyVoucher } from '../../models/Tally.js';
@@ -43,7 +43,7 @@ function period(q: Request['query']): { from?: Date; to?: Date; match: Record<st
   return { from, to, match: Object.keys(date).length ? { date } : {} };
 }
 
-/** GET /api/tally/companies â€” every Tally company the connector has sent, with its last sync. */
+/** GET /api/tally/companies — every Tally company the connector has sent, with its last sync. */
 export async function companies(_req: Request, res: Response) {
   const [syncs, counts] = await Promise.all([
     TallySync.aggregate<{ _id: { source: string; company: string }; last: Record<string, unknown>; lastOk?: Date }>([
@@ -78,7 +78,7 @@ export async function companies(_req: Request, res: Response) {
   res.json({ companies: list });
 }
 
-/** GET /api/tally/summary?source=&company=&from=&to= â€” the dashboard's figures. */
+/** GET /api/tally/summary?source=&company=&from=&to= — the dashboard's figures. */
 export async function summary(req: Request, res: Response) {
   const t = target(req.query);
   const p = period(req.query);
@@ -206,16 +206,17 @@ export async function ledgerList(req: Request, res: Response) {
   res.json({ items, total, page: pg.page, limit: pg.limit, groups: groups.filter(Boolean).sort() });
 }
 
-/** GET /api/tally/status â€” what each connector last reported (Tally open? which company? syncing?). */
+/** GET /api/tally/status — what each connector last reported (Tally open? which company? syncing?). */
 export async function status(_req: Request, res: Response) {
   const connectors = await TallyConnector.find().sort({ source: 1 }).lean();
   res.json({ connectors, now: new Date() });
 }
 
-/** POST /api/tally/sync-request { source } â€” "Sync now": the connector picks it up at its next check-in. */
+/** POST /api/tally/sync-request { source } — "Sync now": the connector picks it up at its next check-in. */
 export async function requestSync(req: Request, res: Response) {
   const source = str(req.body?.source).trim().toLowerCase();
   if (!/^[a-z0-9_-]{1,30}$/.test(source)) throw badRequest('source is required');
+  if (await TallyConnector.exists({ source, paused: true })) throw badRequest('Automatic sync is switched off. Switch it on to sync.');
   const doc = await TallyConnector.findOneAndUpdate(
     { source },
     { $set: { syncRequestedAt: new Date(), syncRequestedBy: currentAdmin(req).email } },
@@ -226,7 +227,30 @@ export async function requestSync(req: Request, res: Response) {
   res.json({ connector: doc });
 }
 
-/** GET /api/tally/report?source=&company=&from=&to= â€” profit and loss by ledger, and sales by customer, for the period. */
+/**
+ * PUT /api/tally/auto-sync { source, enabled } — the "Automatic sync" switch. Off: the connector keeps checking in
+ * (so the panel still shows whether Tally is open) but reads nothing from Tally, e.g. while data is being moved into it.
+ */
+export async function setAutoSync(req: Request, res: Response) {
+  const source = str(req.body?.source).trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,30}$/.test(source)) throw badRequest('source is required');
+  if (typeof req.body?.enabled !== 'boolean') throw badRequest('enabled must be true or false');
+  const paused = !req.body.enabled;
+  const doc = await TallyConnector.findOneAndUpdate(
+    { source },
+    {
+      $set: paused
+        ? { paused: true, pausedAt: new Date(), pausedBy: currentAdmin(req).email, syncRequestedAt: null, syncRequestedBy: null }
+        : { paused: false, pausedAt: null, pausedBy: null },
+    },
+    { returnDocument: 'after' }
+  ).lean();
+  if (!doc) throw badRequest('The connector for this Tally has never checked in yet');
+  await audit(req, paused ? 'tally.auto_sync_off' : 'tally.auto_sync_on', { details: { source } });
+  res.json({ connector: doc });
+}
+
+/** GET /api/tally/report?source=&company=&from=&to= — profit and loss by ledger, and sales by customer, for the period. */
 export async function report(req: Request, res: Response) {
   const t = target(req.query);
   const p = period(req.query);

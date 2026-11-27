@@ -28,6 +28,8 @@ export const ACTION_LABEL: Record<string, string> = {
   'admin.tally_granted': 'Tally dashboard access given',
   'admin.tally_revoked': 'Tally dashboard access removed',
   'tally.sync_requested': 'Tally sync requested ("Sync now")',
+  'tally.auto_sync_off': 'Automatic Tally sync switched off',
+  'tally.auto_sync_on': 'Automatic Tally sync switched back on',
   'export.xlsx': 'Excel export downloaded',
   'demo.loaded': 'Demo data loaded',
   'demo.cleared': 'Demo data removed',

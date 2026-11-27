@@ -163,7 +163,7 @@ export interface TallyLedger {
   closing: number;
 }
 
-export type TallyConnectorState = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'error';
+export type TallyConnectorState = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'paused' | 'error';
 
 /** What the connector on the Tally server last reported (it checks in every few minutes). */
 export interface TallyConnectorStatus {
@@ -180,6 +180,10 @@ export interface TallyConnectorStatus {
   lastSyncAt?: string;
   syncRequestedAt?: string | null;
   syncRequestedBy?: string | null;
+  /** "Automatic sync" switched off: the connector reads nothing from Tally. */
+  paused?: boolean;
+  pausedAt?: string | null;
+  pausedBy?: string | null;
 }
 
 export interface TallyReport {
