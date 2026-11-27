@@ -28,6 +28,7 @@ export const tallyApi = {
   ledgers: (q: TallyQuery) => http.get<TallyPage<TallyLedger> & { groups: string[] }>(`${BASE}/ledgers?${qs(q)}`),
   status: () => http.get<{ connectors: TallyConnectorStatus[]; now: string }>(`${BASE}/status`),
   requestSync: (source: string) => http.post<{ connector: TallyConnectorStatus }>(`${BASE}/sync-request`, { source }),
+  setAutoSync: (source: string, enabled: boolean) => http.put<{ connector: TallyConnectorStatus }>(`${BASE}/auto-sync`, { source, enabled }),
   report: (q: TallyQuery) => http.get<TallyReport>(`${BASE}/report?${qs(q)}`),
   groupPl: (q: GroupPlQuery) => http.get<GroupPlReport>(`${BASE}/group-pl?${gq(q)}`),
   groupPlExportUrl: (q: GroupPlQuery) => `${BASE}/group-pl/export?${gq(q)}`,

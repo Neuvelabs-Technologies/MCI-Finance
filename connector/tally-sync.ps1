@@ -38,7 +38,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.2.1'
+$ConnectorVersion = '1.2.2'
 # Bumped when vouchers carry more than before: the next sync then re-reads every voucher once.
 $DataVersion = 2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -196,7 +196,12 @@ function Send-Heartbeat([string]$Status, [string]$Message, $Probe, [string[]]$Co
   }
   if ($StartingRequestedSync) { $body.startingRequestedSync = $true }
   if ($Synced) { $body.synced = $true }
-  try { return [bool](Invoke-Api 'Post' '/heartbeat' $body).syncRequested }
+  try {
+    $r = Invoke-Api 'Post' '/heartbeat' $body
+    # "Automatic sync" switched off on the dashboard: read nothing from Tally until it's back on.
+    $script:Paused = [bool]$r.paused
+    return [bool]$r.syncRequested
+  }
   catch { Write-Log "Could not reach MCI Finance: $($_.Exception.Message)" 'WARN'; return $false }
 }
 
@@ -375,6 +380,7 @@ function Sync-Company([string]$Company, [bool]$RunPresenceCheck, [bool]$Refetch)
     # Progress for the dashboard, so a long first sync isn't mistaken for a stopped connector
     if ($windows.Count -gt 1) {
       [void](Send-Heartbeat 'syncing' ("Syncing {0}: {1:MMMM yyyy} done ({2} of {3} months), {4:N0} vouchers so far." -f $Company, $w[0], $k, $windows.Count, $sent) $script:Probe @($Company))
+      if ($script:Paused) { throw 'Automatic sync was switched off on the dashboard; stopped part-way. It carries on when switched back on.' }
     }
   }
   Write-Log "$Company : $sent new or changed vouchers sent (after AlterID $since)"
@@ -463,6 +469,11 @@ try {
     Write-Log 'MCI Finance accepted the check-in. No data was sent.'
     exit 0
   }
+  if ($script:Paused) {
+    [void](Send-Heartbeat 'paused' "Automatic sync is switched off on the dashboard. $($probe.product)$who is open with $($companies -join ', '); nothing is read from it." $probe $companies)
+    Write-Log 'Automatic sync is switched off on the dashboard; not reading Tally.'
+    exit 0
+  }
   if (-not $due -and -not $requested) { exit 0 }
 
   # 4. Sync
@@ -488,6 +499,8 @@ try {
     if ($presence) { $state.lastPresenceCheck = $today }
     Save-State
     [void](Send-Heartbeat 'synced' "Synced $($companies -join ', ')." $probe $companies -Synced)
+  } elseif ($script:Paused) {
+    [void](Send-Heartbeat 'paused' 'Automatic sync was switched off during a sync; it stopped part-way and carries on when switched back on.' $probe $companies)
   } else {
     [void](Send-Heartbeat 'error' "Sync failed for $($failed -join ', '). See the connector log on the Tally server." $probe $companies)
     exit 1

@@ -28,6 +28,7 @@ dashboardRouter.get('/vouchers', controller.vouchers);
 dashboardRouter.get('/ledgers', controller.ledgerList);
 dashboardRouter.get('/status', controller.status);
 dashboardRouter.post('/sync-request', controller.requestSync);
+dashboardRouter.put('/auto-sync', controller.setAutoSync);
 dashboardRouter.get('/report', controller.report);
 
 // Group P&L: actual from Tally vs the uploaded forecast.

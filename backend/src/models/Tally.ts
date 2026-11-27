@@ -148,7 +148,7 @@ TallySyncSchema.index({ source: 1, company: 1, at: -1 });
 TallySyncSchema.index({ at: -1 });
 
 /** What the connector last reported about itself and about Tally (one record per source). Updated every run. */
-export type ConnectorStatus = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'error';
+export type ConnectorStatus = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'paused' | 'error';
 
 export interface ITallyConnector {
   source: string;
@@ -168,6 +168,10 @@ export interface ITallyConnector {
   /** Someone pressed "Sync now"; cleared when the connector starts that sync. */
   syncRequestedAt?: Date | null;
   syncRequestedBy?: string | null;
+  /** Automatic sync switched off on the dashboard (e.g. while data is moved into Tally): the connector reads nothing. */
+  paused?: boolean;
+  pausedAt?: Date | null;
+  pausedBy?: string | null;
 }
 
 const TallyConnectorSchema = new Schema<ITallyConnector>(
@@ -185,6 +189,9 @@ const TallyConnectorSchema = new Schema<ITallyConnector>(
     lastSyncAt: Date,
     syncRequestedAt: { type: Date, default: null },
     syncRequestedBy: { type: String, default: null },
+    paused: { type: Boolean, default: false },
+    pausedAt: { type: Date, default: null },
+    pausedBy: { type: String, default: null },
   },
   { versionKey: false }
 );
