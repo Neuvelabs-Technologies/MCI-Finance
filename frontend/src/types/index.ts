@@ -82,8 +82,92 @@ export interface AdminUser {
   name?: string;
   /** Has signed in with Microsoft at least once. */
   microsoft?: boolean;
+  /** Can open the Tally dashboard. */
+  tally?: boolean;
+  /** Tally access comes from the TALLY_USERS server setting (can't be removed in the app). */
+  tallyFixed?: boolean;
   lastLoginAt?: string;
   createdAt?: string;
+}
+
+// ---------- Tally (data pushed by the connector on MCI's Tally server) ----------
+
+export interface TallySyncLog {
+  _id: string;
+  at: string;
+  source: string;
+  company: string;
+  ok: boolean;
+  ledgers: number;
+  vouchers: number;
+  full: boolean;
+  durationMs: number;
+  error?: string;
+  connectorVersion?: string;
+  host?: string;
+}
+
+export interface TallyCompany {
+  source: string;
+  company: string;
+  lastSync: TallySyncLog | null;
+  vouchers: number;
+  firstDate: string | null;
+  latestDate: string | null;
+}
+
+export interface TallyAmountRow {
+  name: string;
+  group: string;
+  amount: number;
+}
+
+export interface TallySummary {
+  source: string;
+  company: string;
+  period: { from: string | null; to: string | null };
+  kpis: { income: number; expenses: number; net: number; receivables: number; payables: number; cash: number };
+  monthly: { month: string; income: number; expenses: number }[];
+  topCustomers: { party: string; amount: number; count: number }[];
+  byType: { type: string; amount: number; count: number }[];
+  receivables: TallyAmountRow[];
+  payables: TallyAmountRow[];
+  cash: TallyAmountRow[];
+  syncs: TallySyncLog[];
+  voucherCount: number;
+}
+
+export interface TallyVoucher {
+  _id: string;
+  guid: string;
+  date: string;
+  voucherType: string;
+  baseType: string;
+  number: string;
+  reference: string;
+  party: string;
+  narration: string;
+  amount: number;
+  cancelled: boolean;
+  optional: boolean;
+  entries: { ledger: string; group: string; amount: number }[];
+}
+
+export interface TallyLedger {
+  _id: string;
+  guid: string;
+  name: string;
+  parent: string;
+  group: string;
+  opening: number;
+  closing: number;
+}
+
+export interface TallyPage<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 /** Which sign-in methods this server offers. */

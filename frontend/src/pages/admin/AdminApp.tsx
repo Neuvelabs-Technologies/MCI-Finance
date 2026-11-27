@@ -15,6 +15,7 @@ import Overview from './Overview';
 import CustomerDetail from './customers/CustomerDetail';
 import CustomersList from './customers/CustomersList';
 import SettingsPage from './settings/SettingsPage';
+import TallyDashboard from './tally/TallyDashboard';
 
 /** Admin panel: checks the session, then shows the sidebar and pages. */
 export default function AdminApp() {
@@ -64,6 +65,8 @@ export default function AdminApp() {
           <Route path="activity" element={<Activity />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="guide" element={<Guide />} />
+          {/* Only for admins given Tally access; the API refuses everyone else too */}
+          {ctx.admin.tally ? <Route path="tally" element={<TallyDashboard />} /> : null}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AdminLayout>

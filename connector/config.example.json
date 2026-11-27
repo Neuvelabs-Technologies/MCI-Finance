@@ -1,0 +1,10 @@
+{
+  "tallyUrl": "http://localhost:9001",
+  "source": "gold",
+  "companies": [],
+  "apiBase": "https://finance-ae.wearemci.com",
+  "connectorKey": "PASTE-THE-TALLY_CONNECTOR_KEY-FROM-APP-SERVICE-HERE",
+  "fromDate": "2020-01-01",
+  "batchSize": 500,
+  "dailyCheckHour": 2
+}

@@ -17,6 +17,7 @@ import entitiesRoutes from './modules/entities/entities.routes.js';
 import publicFormRoutes from './modules/public-form/public-form.routes.js';
 import settingsRoutes from './modules/settings/settings.routes.js';
 import systemRoutes from './modules/system/system.routes.js';
+import { connectorRouter as tallyConnectorRoutes, dashboardRouter as tallyRoutes } from './modules/tally/tally.routes.js';
 import webhooksRoutes from './modules/webhooks/webhooks.routes.js';
 import { storageKind } from './services/storage.service.js';
 import { normalizeForwardedFor } from './utils/client-ip.js';
@@ -68,6 +69,8 @@ export function createApp({ publicDir = PUBLIC_DIR }: { publicDir?: string } = {
   );
   // Delivery events from the email provider. Mailjet batches events, so allow larger bodies than the API.
   app.use('/api/webhooks', express.json({ limit: '10mb' }), webhooksRoutes);
+  // Data pushed by the Tally connector (its own key and body limit, see modules/tally/tally.routes.ts).
+  app.use('/api/tally/connector', tallyConnectorRoutes);
 
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
@@ -90,6 +93,7 @@ export function createApp({ publicDir = PUBLIC_DIR }: { publicDir?: string } = {
   app.use('/api/admins', adminsRoutes);
   app.use('/api/audit', auditRoutes);
   app.use('/api/system', systemRoutes);
+  app.use('/api/tally', tallyRoutes);
 
   if (fs.existsSync(path.join(publicDir, 'index.html'))) serveFrontend(app, publicDir);
 

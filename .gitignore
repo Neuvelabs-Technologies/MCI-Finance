@@ -27,3 +27,8 @@ npm-debug.log*
 
 # Built frontend copied in by the Azure deploy workflow
 backend/public/
+
+# Tally connector: its settings hold the connector key; state and logs are per machine
+connector/config.json
+connector/state.json
+connector/logs/

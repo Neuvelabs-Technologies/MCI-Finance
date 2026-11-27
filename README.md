@@ -15,6 +15,7 @@ Each customer gets a **personal link** by email and fills in one form. The MCI f
 
 - **How the system works / how to use it** — the **Guide** inside the app (`/admin/guide`). Written for the finance team; values like the due date and reminder days come from the live settings.
 - **Running it** (deploy, configuration, backups, upgrades, monitoring, security) — [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- **Tally reports and the Tally connector** (what runs on MCI's Tally server, setup checklist, access) — [docs/TALLY.md](docs/TALLY.md).
 
 ## Quick start (development)
 

@@ -31,6 +31,7 @@ Changes reach UAT first: merge into `uat`, check, then merge `uat` into `main`.
 | `MAILJET_API_KEY`, `MAILJET_SECRET_KEY` | MCI IT (Franck). Until set, emails are only written to the log |
 | `NODE_ENV=production`, `JWT_SECRET` (random), `PUBLIC_BASE_URL=https://finance-ae.wearemci.com`, `COOKIE_SECURE=true`, `PASSWORD_LOGIN=false`, `MAIL_FROM`, `TZ=Asia/Dubai`, `SCM_DO_BUILD_DURING_DEPLOYMENT=false` | Neuvelabs |
 | `MAILJET_WEBHOOK_SECRET`, `NOTIFY_EMAILS` | Neuvelabs, once Mailjet is live |
+| `TALLY_CONNECTOR_KEY`, `TALLY_ALLOWED_IPS`, `TALLY_USERS` | Tally connector and Tally reports — see [TALLY.md](TALLY.md) |
 
 Changing an app setting restarts the app. `JWT_SECRET` changing signs everyone out.
 

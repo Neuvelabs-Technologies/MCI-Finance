@@ -4,6 +4,7 @@ import {
   Activity,
   BookOpen,
   Building2,
+  ChartColumn,
   ChevronsUpDown,
   FlaskConical,
   LayoutDashboard,
@@ -52,6 +53,9 @@ const MORE: NavItem[] = [
 ];
 
 const FOOTER: NavItem[] = [{ to: '/admin/guide', label: 'Guide', icon: BookOpen }];
+
+/** Shown only to admins given the Tally dashboard. */
+const REPORTS: NavItem[] = [{ to: '/admin/tally', label: 'Tally reports', icon: ChartColumn }];
 
 const navItemClass =
   'flex min-h-11 w-full items-center gap-3 rounded-[10px] px-3 text-[0.9375rem] font-medium text-foreground transition-colors hover:bg-muted';
@@ -140,6 +144,7 @@ const groupLabel = 'px-3 pb-1 text-[11px] font-bold uppercase tracking-wider tex
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation();
+  const { admin } = useAdmin();
   const [counts, setCounts] = useState<Record<PartyType, number> | undefined>();
   // Refreshed on every page change, so adding or deleting records shows up quickly
   useEffect(() => {
@@ -164,6 +169,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <SideLink key={item.to} item={item} onNavigate={onNavigate} count={item.count && counts ? counts[item.count] : undefined} />
         ))}
       </div>
+      {admin.tally ? (
+        <div className="flex flex-col gap-1">
+          <span className={groupLabel}>Reports</span>
+          {REPORTS.map((item) => (
+            <SideLink key={item.to} item={item} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-col gap-1">
         <span className={groupLabel}>Manage</span>
         {MORE.map((item) => (
