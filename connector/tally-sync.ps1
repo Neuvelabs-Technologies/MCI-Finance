@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   MCI Finance - Tally connector. Reads accounts from TallyPrime (read-only) and sends them to MCI Finance.
 
@@ -35,7 +35,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.1.0'
+$ConnectorVersion = '1.1.4'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -85,19 +85,27 @@ function Invoke-Tally([string]$Body, [int]$TimeoutSec = 300) {
   $text = if ($raw.Length -ge 2 -and $raw[0] -eq 0xFF -and $raw[1] -eq 0xFE) { [Text.Encoding]::Unicode.GetString($raw) } else { [Text.Encoding]::UTF8.GetString($raw) }
   # Tally puts control characters (e.g. &#4;) in names; XML parsers refuse them.
   $text = $text -replace '&#(?:[0-8]|1[124-9]|2[0-9]|3[01]);', '' -replace '[\x00-\x08\x0B\x0C\x0E-\x1F]', ''
-  $xml = [xml]$text
+  # Custom (TDL) fields come as <UDF:NAME> with an undeclared prefix; rename them so the XML reads.
+  $text = $text -replace '<(/?)([A-Za-z_][\w.-]*):', '<$1$2_'
+  try { $xml = [xml]$text }
+  catch { throw "Tally sent XML that could not be read ($($_.Exception.InnerException.Message))" }
   $err = $xml.SelectSingleNode('//LINEERROR')
   if ($err) { throw "Tally: $($err.InnerText)" }
   return $xml
 }
 
-function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [string]$Extra = '', [datetime]$From = $FromDate, [datetime]$To = (Get-Date).AddYears(1), [int]$TimeoutSec = 300) {
-  $companyVar = if ($Company) { "<SVCURRENTCOMPANY>$(ConvertTo-XmlText $Company)</SVCURRENTCOMPANY>" } else { '' }
+# When only one company is open, requests leave the company out (Tally uses the open one): naming it
+# makes some Tally setups try to switch to it and wait on a prompt. Dates are sent only for vouchers.
+$script:OnlyOneCompany = $false
+
+function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [string]$Extra = '', [datetime]$From = $FromDate, [datetime]$To = (Get-Date).AddYears(1), [int]$TimeoutSec = 300, [switch]$Dated, [string]$Formula = '') {
+  $companyVar = if ($Company -and -not $script:OnlyOneCompany) { "<SVCURRENTCOMPANY>$(ConvertTo-XmlText $Company)</SVCURRENTCOMPANY>" } else { '' }
+  $dates = if ($Dated) { "<SVFROMDATE>$($From.ToString('yyyyMMdd'))</SVFROMDATE><SVTODATE>$($To.ToString('yyyyMMdd'))</SVTODATE>" } else { '' }
   $body = @"
 <ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>MCIFinance$Type</ID></HEADER>
 <BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>`$`$SysName:XML</SVEXPORTFORMAT>$companyVar
-<SVFROMDATE>$($From.ToString('yyyyMMdd'))</SVFROMDATE><SVTODATE>$($To.ToString('yyyyMMdd'))</SVTODATE></STATICVARIABLES>
-<TDL><TDLMESSAGE><COLLECTION NAME="MCIFinance$Type" ISMODIFY="No"><TYPE>$Type</TYPE><FETCH>$Fetch</FETCH>$Extra</COLLECTION>
+$dates</STATICVARIABLES>
+<TDL><TDLMESSAGE><COLLECTION NAME="MCIFinance$Type" ISMODIFY="No"><TYPE>$Type</TYPE><FETCH>$Fetch</FETCH>$Extra</COLLECTION>$Formula
 </TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
 "@
   $xml = Invoke-Tally $body $TimeoutSec
@@ -216,12 +224,19 @@ function Get-VoucherTypeBases([string]$Company) {
 }
 
 # Each group's primary group (the top of its chain: Sales Accounts, Sundry Debtors, Bank Accounts...).
+# Uses Tally's built-in name of the primary group (its RESERVEDNAME), so a group MCI renamed, e.g.
+# "Trade Receivables" for Sundry Debtors, still counts as Sundry Debtors in the reports.
 function Get-PrimaryGroups([string]$Company) {
   $parents = @{}
-  foreach ($g in Get-TallyCollection -Company $Company -Type 'Group' -Fetch 'Name,Parent' -TimeoutSec 120) {
+  $reserved = @{}
+  foreach ($g in Get-TallyCollection -Company $Company -Type 'Group' -Fetch 'Name,Parent,ReservedName' -TimeoutSec 120) {
+    $name = $g.GetAttribute('NAME')
     $p = (Get-Text $g 'PARENT').Trim()
     if ($p -eq 'Primary') { $p = '' }
-    $parents[$g.GetAttribute('NAME')] = $p
+    $parents[$name] = $p
+    $r = $g.GetAttribute('RESERVEDNAME')
+    if (-not $r) { $r = Get-Text $g 'RESERVEDNAME' }
+    if ($r) { $reserved[$name] = $r.Trim() }
   }
   $primary = @{}
   foreach ($name in $parents.Keys) {
@@ -231,14 +246,14 @@ function Get-PrimaryGroups([string]$Company) {
       if (-not $p -or $p -eq $cur -or -not $parents.ContainsKey($p)) { break }
       $cur = $p
     }
-    $primary[$name] = $cur
+    $primary[$name] = if ($reserved.ContainsKey($cur)) { $reserved[$cur] } else { $cur }
   }
   return $primary
 }
 
 function Get-Ledgers([string]$Company) {
   $primary = Get-PrimaryGroups $Company
-  $nodes = Get-TallyCollection -Company $Company -Type 'Ledger' -Fetch 'Name,Parent,GUID,AlterID,OpeningBalance,ClosingBalance' -To (Get-Date) -TimeoutSec 300
+  $nodes = Get-TallyCollection -Company $Company -Type 'Ledger' -Fetch 'Name,Parent,GUID,AlterID,OpeningBalance,ClosingBalance' -TimeoutSec 300
   return @($nodes | ForEach-Object {
       $parent = Get-Text $_ 'PARENT'
       [ordered]@{
@@ -312,24 +327,32 @@ function Sync-Company([string]$Company, [bool]$RunPresenceCheck) {
 
   $state = Invoke-Api 'Get' ("/state?source={0}&company={1}" -f [uri]::EscapeDataString($Config.source), [uri]::EscapeDataString($Company))
   $since = if ($Full) { 0 } else { [long]$state.maxVoucherAlterId }
-  $filter = "<FILTERS>MCIChanged</FILTERS><SYSTEM TYPE=`"Formulae`" NAME=`"MCIChanged`">`$AlterID &gt; $since</SYSTEM>"
+  # The filter's formula is its own definition next to the collection, not inside it.
+  $filter = '<FILTERS>MCIChanged</FILTERS>'
+  $formula = "<SYSTEM TYPE=`"Formulae`" NAME=`"MCIChanged`">`$AlterID &gt; $since</SYSTEM>"
 
   $sent = 0
   # First sync: month by month. After that only changes, in one request.
   if ($since -eq 0) { $windows = Get-MonthWindows } else { $windows = @(, @($FromDate, (Get-Date).AddYears(1))) }
+  $k = 0
   foreach ($w in $windows) {
-    $nodes = @(Get-TallyCollection -Company $Company -Type 'Voucher' -Fetch $VoucherFetch -Extra $filter -From $w[0] -To $w[1])
+    $k++
+    $nodes = @(Get-TallyCollection -Company $Company -Type 'Voucher' -Fetch $VoucherFetch -Extra $filter -Formula $formula -From $w[0] -To $w[1] -Dated)
     if ($nodes.Count -eq 0) { continue }
     $rows = @($nodes | ForEach-Object { Convert-Voucher $_ $groups $bases } | Where-Object { $_.guid -and $_.date })
     Send-InBatches '/vouchers' $target 'vouchers' $rows
     $sent += $rows.Count
+    # Progress for the dashboard, so a long first sync isn't mistaken for a stopped connector
+    if ($windows.Count -gt 1) {
+      [void](Send-Heartbeat 'syncing' ("Syncing {0}: {1:MMMM yyyy} done ({2} of {3} months), {4:N0} vouchers so far." -f $Company, $w[0], $k, $windows.Count, $sent) $script:Probe @($Company))
+    }
   }
   Write-Log "$Company : $sent new or changed vouchers sent (after AlterID $since)"
 
   if ($RunPresenceCheck) {
     $guids = New-Object System.Collections.ArrayList
     foreach ($w in Get-MonthWindows) {
-      foreach ($n in Get-TallyCollection -Company $Company -Type 'Voucher' -Fetch 'GUID' -From $w[0] -To $w[1]) {
+      foreach ($n in Get-TallyCollection -Company $Company -Type 'Voucher' -Fetch 'GUID' -From $w[0] -To $w[1] -Dated) {
         $g = Get-Text $n 'GUID'; if ($g) { [void]$guids.Add($g) }
       }
     }
@@ -365,6 +388,7 @@ try {
 
   # 1. What is on Tally's port?
   $probe = Get-TallyProbe
+  $script:Probe = $probe
   if ($probe.state -eq 'not_running') {
     [void](Send-Heartbeat 'tally_not_running' "Nothing is answering on port $TallyPort. Data syncs once someone opens $ExpectProduct with the company." $probe)
     Write-Log "Tally is not running (nothing on port $TallyPort)." 'WARN'; exit 0
@@ -385,6 +409,7 @@ try {
     [void](Send-Heartbeat 'tally_not_responding' "Tally did not list its companies: $($_.Exception.Message)" $probe)
     Write-Log "Tally did not list its companies: $($_.Exception.Message)" 'WARN'; exit 0
   }
+  $script:OnlyOneCompany = ($companies.Count -eq 1)
   if ($companies.Count -eq 0) {
     [void](Send-Heartbeat 'no_company' "$($probe.product)$who is open, but no company is loaded in it." $probe)
     Write-Log "$($probe.product)$who is open, but no company is loaded." 'WARN'; exit 0

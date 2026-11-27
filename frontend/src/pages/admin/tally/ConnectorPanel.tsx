@@ -36,8 +36,9 @@ function describe(c: TallyConnectorStatus): View {
   const check = c.checkMinutes ?? 2;
   const product = c.tally.product || 'Tally';
   const who = c.tally.user ? ` (opened by ${c.tally.user})` : '';
-  // No check-in for a while: the connector itself isn't running.
-  if (minutesAgo(c.lastSeenAt) > Math.max(check * 4, 10)) {
+  // No check-in for a while: the connector itself isn't running. A sync reports after each month, which
+  // can take a few minutes on a busy month, so allow longer while one is running.
+  if (minutesAgo(c.lastSeenAt) > (c.status === 'syncing' ? 30 : Math.max(check * 4, 10))) {
     return {
       tone: 'danger',
       icon: ServerOff,
