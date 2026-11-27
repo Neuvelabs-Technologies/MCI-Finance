@@ -7,6 +7,12 @@
   - **Only for chosen users.** Any admin switches it on or off per user in **Settings → Users** (new "Tally reports" column). The optional `TALLY_USERS` server setting lists emails that always have it; usually it's left empty. Everyone else doesn't see the menu item, and the API refuses them (403). Changes are recorded in Activity.
 - **Tally connector** (`connector/`): a PowerShell script for MCI's Tally server. Every 15 minutes it reads ledgers and new or changed vouchers from TallyPrime's XML port (export only) and sends them to `/api/tally/connector/*` with its own key (`TALLY_CONNECTOR_KEY`, optionally limited to `TALLY_ALLOWED_IPS`). Once a day it flags vouchers and ledgers deleted in Tally; nothing is ever deleted in MCI Finance. Setup and hand-over: [docs/TALLY.md](docs/TALLY.md).
 
+- **Tally connection panel** at the top of Tally reports, in plain words: connected to TallyPrime (and whose session it runs in) and which company is open; or Tally not open, no company loaded, Tally not answering (a message box waiting), another Tally (e.g. ERP 9) holding the port, or the connector itself offline. Shows when data last arrived, when the next sync is due, and when the connector last checked in. Refreshes every 20 seconds and reloads the figures when a sync lands.
+- **Sync now** button: the connector picks the request up at its next check-in (within 2 minutes) if Tally is open with the company. Recorded in Activity.
+- **Reports tab**: quarter and year summary (income, expenses, net, margin, by calendar quarter), profit and loss by ledger, and sales by customer, each downloadable as CSV.
+- **More periods**: this month, last month, this quarter, last quarter, this year, last year, last 12 months, all dates, or custom dates.
+- Connector 1.1.0: checks in every 2 minutes (`/api/tally/connector/heartbeat`) and syncs every 15 minutes or on request. Only simple export requests, each with a time limit, so a busy Tally can't hold it up; works out primary groups itself instead of asking Tally to compute them. Reads only `expectProduct` (TallyPrime) and reports any other Tally on the port instead of reading it. Re-run `install-task.ps1` to switch the schedule to every 2 minutes.
+
 ### Changed
 - Pushes that only change `connector/` don't redeploy the App Service.
 

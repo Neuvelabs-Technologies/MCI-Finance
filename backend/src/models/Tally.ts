@@ -134,6 +134,49 @@ const TallySyncSchema = new Schema<ITallySync>(
 TallySyncSchema.index({ source: 1, company: 1, at: -1 });
 TallySyncSchema.index({ at: -1 });
 
+/** What the connector last reported about itself and about Tally (one record per source). Updated every run. */
+export type ConnectorStatus = 'synced' | 'syncing' | 'idle' | 'no_company' | 'tally_not_running' | 'tally_not_responding' | 'wrong_tally' | 'error';
+
+export interface ITallyConnector {
+  source: string;
+  lastSeenAt: Date;
+  status: ConnectorStatus;
+  message?: string;
+  /** Companies open in Tally at the last check. */
+  companies: string[];
+  /** What is answering on Tally's port. */
+  tally: { product?: string; user?: string; port?: number };
+  host?: string;
+  connectorVersion?: string;
+  /** How often the connector checks in, and how often it syncs on its own. */
+  checkMinutes?: number;
+  syncMinutes?: number;
+  lastSyncAt?: Date;
+  /** Someone pressed "Sync now"; cleared when the connector starts that sync. */
+  syncRequestedAt?: Date | null;
+  syncRequestedBy?: string | null;
+}
+
+const TallyConnectorSchema = new Schema<ITallyConnector>(
+  {
+    source: { type: String, required: true, unique: true },
+    lastSeenAt: { type: Date, default: Date.now },
+    status: { type: String, default: 'idle' },
+    message: String,
+    companies: { type: [String], default: [] },
+    tally: { product: String, user: String, port: Number },
+    host: String,
+    connectorVersion: String,
+    checkMinutes: Number,
+    syncMinutes: Number,
+    lastSyncAt: Date,
+    syncRequestedAt: { type: Date, default: null },
+    syncRequestedBy: { type: String, default: null },
+  },
+  { versionKey: false }
+);
+
+export const TallyConnector = model<ITallyConnector>('TallyConnector', TallyConnectorSchema);
 export const TallyLedger = model<ITallyLedger>('TallyLedger', TallyLedgerSchema);
 export const TallyVoucher = model<ITallyVoucher>('TallyVoucher', TallyVoucherSchema);
 export const TallySync = model<ITallySync>('TallySync', TallySyncSchema);

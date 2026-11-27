@@ -6,7 +6,7 @@ import type { Express } from 'express';
 import { createApp } from '../src/app.js';
 import { config } from '../src/config/env.js';
 import { Admin } from '../src/models/Admin.js';
-import { TallyLedger, TallySync, TallyVoucher } from '../src/models/Tally.js';
+import { TallyConnector, TallyLedger, TallySync, TallyVoucher } from '../src/models/Tally.js';
 import { ensureSeed } from '../src/seeds/seed.js';
 
 let mongo: MongoMemoryServer;
@@ -214,5 +214,40 @@ describe('tally dashboard', () => {
     expect(v.body.types).toEqual(['Payment', 'Sales']);
     const l = await admin.get(`/api/tally/ledgers?source=gold&company=${encodeURIComponent(T.company)}&group=Sundry%20Debtors`);
     expect(l.body.items.map((x: { name: string }) => x.name)).toEqual(['Acme Pharma']);
+  });
+});
+
+describe('tally connector status and reports', () => {
+  it('records check-ins, takes a "Sync now" request and clears it when the connector starts', async () => {
+    await TallyConnector.deleteMany({});
+    const c = connector();
+    const admin = await signedInAs(ADMIN_EMAIL);
+
+    // No check-in yet: nothing to ask
+    expect((await admin.post('/api/tally/sync-request').send({ source: 'gold' })).status).toBe(400);
+
+    const hb = await c.post('/heartbeat', { source: 'gold', status: 'no_company', tally: { product: 'TallyPrime', user: 'lisa', port: 9001 }, checkMinutes: 2, syncMinutes: 15 });
+    expect(hb.body).toEqual({ ok: true, syncRequested: false });
+    let s = await admin.get('/api/tally/status');
+    expect(s.body.connectors[0]).toMatchObject({ source: 'gold', status: 'no_company', tally: { product: 'TallyPrime', user: 'lisa' } });
+
+    expect((await admin.post('/api/tally/sync-request').send({ source: 'gold' })).status).toBe(200);
+    expect((await c.post('/heartbeat', { source: 'gold', status: 'idle' })).body.syncRequested).toBe(true);
+    expect((await c.post('/heartbeat', { source: 'gold', status: 'syncing', startingRequestedSync: true })).body.syncRequested).toBe(false);
+    await c.post('/heartbeat', { source: 'gold', status: 'synced', synced: true });
+    s = await admin.get('/api/tally/status');
+    expect(s.body.connectors[0].status).toBe('synced');
+    expect(s.body.connectors[0].lastSyncAt).toBeTruthy();
+    expect(s.body.connectors[0].syncRequestedAt).toBeNull();
+
+    // Profit and loss by ledger, sales by customer
+    await c.post('/ledgers', { ...T, ledgers: LEDGERS });
+    await c.post('/vouchers', { ...T, vouchers: VOUCHERS });
+    const r = await admin.get(`/api/tally/report?source=gold&company=${encodeURIComponent(T.company)}`);
+    expect(r.body.pnl).toEqual([
+      { group: 'Sales Accounts', kind: 'income', total: 15000, ledgers: [{ name: 'Sales - Events', amount: 15000 }] },
+      { group: 'Indirect Expenses', kind: 'expense', total: 4000, ledgers: [{ name: 'Office Rent', amount: 4000 }] },
+    ]);
+    expect(r.body.customers[0]).toMatchObject({ party: 'Acme Pharma', amount: 15000, count: 2 });
   });
 });

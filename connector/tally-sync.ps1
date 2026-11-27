@@ -3,24 +3,29 @@
   MCI Finance - Tally connector. Reads accounts from TallyPrime (read-only) and sends them to MCI Finance.
 
 .DESCRIPTION
-  Runs on MCI's Tally server every 15 minutes (Windows Task Scheduler, see install-task.ps1).
-  1. Asks Tally (http://localhost:9001, Tally's own XML port) for the open companies.
-  2. Per company: every ledger with its balance, then the vouchers created or changed since the last run
-     (Tally's AlterID tells which), and sends them to https://finance-ae.wearemci.com/api/tally/connector/*.
-  3. Once a day: the list of every voucher and ledger still in Tally, so ones deleted there are flagged
-     (never deleted) in MCI Finance.
+  Runs on MCI's Tally server every 2 minutes (Windows Task Scheduler, see install-task.ps1).
 
-  It only sends Export requests to Tally. It never imports, alters or deletes anything in Tally.
-  Plain Windows PowerShell 5.1: nothing to install.
+  Every run (a "check-in", a second or two):
+    - Looks at Tally's XML port: is Tally running, which Tally (TallyPrime or Tally.ERP 9), whose
+      Windows session it runs in, which companies are open. Reports that to MCI Finance, so the
+      dashboard can say what is going on, and learns whether someone pressed "Sync now".
+  When a sync is due (every 15 minutes by default) or was asked for:
+    - Per company: every ledger with its balance, then the vouchers created or changed since the last
+      sync (Tally's AlterID tells which). The first sync goes month by month.
+  Once a day: the list of every voucher and ledger still in Tally, so ones deleted there are flagged
+  (never deleted) in MCI Finance.
+
+  It only sends simple Export requests to Tally, each with a time limit. It never imports, alters or
+  deletes anything in Tally. Plain Windows PowerShell 5.1: nothing to install.
 
 .PARAMETER ConfigPath
   The JSON settings file (default: config.json next to this script). See config.example.json.
 
 .PARAMETER Test
-  Check the connection to Tally and to MCI Finance, list the open companies, and send nothing.
+  Check Tally and MCI Finance, list the open companies, and send no data (a check-in is still sent).
 
 .PARAMETER Full
-  Send every voucher again (not only changes), and run the daily deleted-voucher check now.
+  Sync now, send every voucher again (not only changes), and run the daily deleted-records check.
 #>
 [CmdletBinding()]
 param(
@@ -30,7 +35,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$ConnectorVersion = '1.0.0'
+$ConnectorVersion = '1.1.0'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -43,9 +48,16 @@ foreach ($k in 'tallyUrl', 'source', 'apiBase', 'connectorKey') {
 }
 if ($Config.connectorKey -like 'PASTE*') { throw 'config.json: connectorKey is still the example value' }
 $ApiBase = $Config.apiBase.TrimEnd('/')
+# 127.0.0.1 rather than "localhost": avoids a slow IPv6 attempt first
+$TallyUrl = ($Config.tallyUrl.TrimEnd('/')) -replace '//localhost', '//127.0.0.1'
+$TallyPort = ([uri]$TallyUrl).Port
 $FromDate = if ($Config.fromDate) { [datetime]::ParseExact($Config.fromDate, 'yyyy-MM-dd', $Invariant) } else { [datetime]'2020-01-01' }
 $BatchSize = if ($Config.batchSize) { [int]$Config.batchSize } else { 500 }
 $PresenceHour = if ($null -ne $Config.dailyCheckHour) { [int]$Config.dailyCheckHour } else { 2 }
+$SyncMinutes = if ($Config.syncMinutes) { [int]$Config.syncMinutes } else { 15 }
+$CheckMinutes = if ($Config.checkMinutes) { [int]$Config.checkMinutes } else { 2 }
+# Which Tally the connector should read. Another one on the port (e.g. Tally.ERP 9) is reported, not read.
+$ExpectProduct = if ($Config.expectProduct) { [string]$Config.expectProduct } else { 'TallyPrime' }
 
 $DataDir = Split-Path -Parent (Resolve-Path $ConfigPath)
 $LogDir = Join-Path $DataDir 'logs'
@@ -66,9 +78,9 @@ Get-ChildItem $LogDir -Filter 'tally-sync-*.log' | Where-Object { $_.LastWriteTi
 
 function ConvertTo-XmlText([string]$s) { [Security.SecurityElement]::Escape($s) }
 
-function Invoke-Tally([string]$Body) {
+function Invoke-Tally([string]$Body, [int]$TimeoutSec = 300) {
   $bytes = [Text.Encoding]::UTF8.GetBytes($Body)
-  $r = Invoke-WebRequest -Uri $Config.tallyUrl -Method Post -Body $bytes -ContentType 'text/xml;charset=utf-8' -UseBasicParsing -TimeoutSec 600
+  $r = Invoke-WebRequest -Uri $TallyUrl -Method Post -Body $bytes -ContentType 'text/xml;charset=utf-8' -UseBasicParsing -TimeoutSec $TimeoutSec
   $raw = $r.RawContentStream.ToArray()
   $text = if ($raw.Length -ge 2 -and $raw[0] -eq 0xFF -and $raw[1] -eq 0xFE) { [Text.Encoding]::Unicode.GetString($raw) } else { [Text.Encoding]::UTF8.GetString($raw) }
   # Tally puts control characters (e.g. &#4;) in names; XML parsers refuse them.
@@ -79,7 +91,7 @@ function Invoke-Tally([string]$Body) {
   return $xml
 }
 
-function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [string]$Extra = '', [datetime]$From = $FromDate, [datetime]$To = (Get-Date).AddYears(1)) {
+function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [string]$Extra = '', [datetime]$From = $FromDate, [datetime]$To = (Get-Date).AddYears(1), [int]$TimeoutSec = 300) {
   $companyVar = if ($Company) { "<SVCURRENTCOMPANY>$(ConvertTo-XmlText $Company)</SVCURRENTCOMPANY>" } else { '' }
   $body = @"
 <ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>MCIFinance$Type</ID></HEADER>
@@ -88,7 +100,7 @@ function Get-TallyCollection([string]$Company, [string]$Type, [string]$Fetch, [s
 <TDL><TDLMESSAGE><COLLECTION NAME="MCIFinance$Type" ISMODIFY="No"><TYPE>$Type</TYPE><FETCH>$Fetch</FETCH>$Extra</COLLECTION>
 </TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>
 "@
-  $xml = Invoke-Tally $body
+  $xml = Invoke-Tally $body $TimeoutSec
   return @($xml.SelectNodes("//COLLECTION/$($Type.ToUpper())"))
 }
 
@@ -108,9 +120,44 @@ function ConvertTo-Amount([string]$s) {
   if ($neg) { return - $n } else { return $n }
 }
 
+# Which Windows user's session the program holding Tally's port runs in (no admin rights needed).
+function Get-PortOwnerUser {
+  try {
+    $conn = Get-NetTCPConnection -State Listen -LocalPort $TallyPort -ErrorAction Stop | Select-Object -First 1
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
+    $sessionId = [string]$proc.SessionId
+    foreach ($line in (quser 2>$null | Select-Object -Skip 1)) {
+      $parts = ($line.Trim().TrimStart('>') -split '\s+')
+      $idIndex = [array]::IndexOf($parts, $sessionId)
+      if ($idIndex -ge 1) { return $parts[0] }
+    }
+  } catch { }
+  return ''
+}
+
+<#
+  What is on Tally's port. Tally answers a plain GET with "<RESPONSE>TallyPrime Server is Running</RESPONSE>"
+  (or "Tally.ERP 9 Server is Running"). Returns @{ state = running|not_running|not_responding; product; user }.
+#>
+function Get-TallyProbe {
+  $probe = @{ state = 'not_running'; product = ''; user = ''; port = $TallyPort }
+  try {
+    $r = Invoke-WebRequest -Uri $TallyUrl -UseBasicParsing -TimeoutSec 15
+    $probe.state = 'running'
+    if ($r.Content -match '<RESPONSE>\s*(.+?)\s+Server is Running') { $probe.product = $Matches[1] } else { $probe.product = 'Tally' }
+  } catch {
+    $msg = $_.Exception.Message
+    if ($msg -match 'timed out|timeout') { $probe.state = 'not_responding' }
+    elseif ($msg -match 'refused|Unable to connect|actively refused') { $probe.state = 'not_running' }
+    else { $probe.state = 'not_responding' }
+  }
+  if ($probe.state -ne 'not_running') { $probe.user = Get-PortOwnerUser }
+  return $probe
+}
+
 function Get-OpenCompanies {
   if ($Config.companies -and @($Config.companies).Count -gt 0) { return @($Config.companies) }
-  return @(Get-TallyCollection -Company '' -Type 'Company' -Fetch 'Name' | ForEach-Object { $_.GetAttribute('NAME') } | Where-Object { $_ })
+  return @(Get-TallyCollection -Company '' -Type 'Company' -Fetch 'Name' -TimeoutSec 30 | ForEach-Object { $_.GetAttribute('NAME') } | Where-Object { $_ })
 }
 
 # ---------------------------------------------------------------- MCI Finance API
@@ -126,6 +173,19 @@ function Invoke-Api([string]$Method, [string]$Path, $Body = $null) {
   return Invoke-RestMethod -Uri $uri -Method $Method -Headers $headers -TimeoutSec 60
 }
 
+# Tells MCI Finance what is going on. Never fails the run; returns whether "Sync now" was pressed.
+function Send-Heartbeat([string]$Status, [string]$Message, $Probe, [string[]]$Companies = @(), [switch]$StartingRequestedSync, [switch]$Synced) {
+  $body = @{
+    source = $Config.source; status = $Status; message = $Message; companies = @($Companies)
+    tally = @{ product = $Probe.product; user = $Probe.user; port = $Probe.port }
+    host = $env:COMPUTERNAME; connectorVersion = $ConnectorVersion; checkMinutes = $CheckMinutes; syncMinutes = $SyncMinutes
+  }
+  if ($StartingRequestedSync) { $body.startingRequestedSync = $true }
+  if ($Synced) { $body.synced = $true }
+  try { return [bool](Invoke-Api 'Post' '/heartbeat' $body).syncRequested }
+  catch { Write-Log "Could not reach MCI Finance: $($_.Exception.Message)" 'WARN'; return $false }
+}
+
 function Send-InBatches([string]$Path, [hashtable]$Target, [string]$Field, [object[]]$Rows) {
   for ($i = 0; $i -lt $Rows.Count; $i += $BatchSize) {
     $chunk = @($Rows[$i..([Math]::Min($i + $BatchSize, $Rows.Count) - 1)])
@@ -139,7 +199,7 @@ function Send-InBatches([string]$Path, [hashtable]$Target, [string]$Field, [obje
 
 function Get-VoucherTypeBases([string]$Company) {
   $parents = @{}
-  foreach ($vt in Get-TallyCollection -Company $Company -Type 'VoucherType' -Fetch 'Name,Parent') {
+  foreach ($vt in Get-TallyCollection -Company $Company -Type 'VoucherType' -Fetch 'Name,Parent' -TimeoutSec 120) {
     $parents[$vt.GetAttribute('NAME')] = Get-Text $vt 'PARENT'
   }
   $bases = @{}
@@ -155,16 +215,38 @@ function Get-VoucherTypeBases([string]$Company) {
   return $bases
 }
 
+# Each group's primary group (the top of its chain: Sales Accounts, Sundry Debtors, Bank Accounts...).
+function Get-PrimaryGroups([string]$Company) {
+  $parents = @{}
+  foreach ($g in Get-TallyCollection -Company $Company -Type 'Group' -Fetch 'Name,Parent' -TimeoutSec 120) {
+    $p = (Get-Text $g 'PARENT').Trim()
+    if ($p -eq 'Primary') { $p = '' }
+    $parents[$g.GetAttribute('NAME')] = $p
+  }
+  $primary = @{}
+  foreach ($name in $parents.Keys) {
+    $cur = $name
+    for ($d = 0; $d -lt 20; $d++) {
+      $p = $parents[$cur]
+      if (-not $p -or $p -eq $cur -or -not $parents.ContainsKey($p)) { break }
+      $cur = $p
+    }
+    $primary[$name] = $cur
+  }
+  return $primary
+}
+
 function Get-Ledgers([string]$Company) {
-  $nodes = Get-TallyCollection -Company $Company -Type 'Ledger' -Fetch 'Name,Parent,GUID,AlterID,OpeningBalance,ClosingBalance' `
-    -Extra '<COMPUTE>PrimaryGroup : $_PrimaryGroup</COMPUTE>' -To (Get-Date)
+  $primary = Get-PrimaryGroups $Company
+  $nodes = Get-TallyCollection -Company $Company -Type 'Ledger' -Fetch 'Name,Parent,GUID,AlterID,OpeningBalance,ClosingBalance' -To (Get-Date) -TimeoutSec 300
   return @($nodes | ForEach-Object {
+      $parent = Get-Text $_ 'PARENT'
       [ordered]@{
         guid    = Get-Text $_ 'GUID'
         name    = $_.GetAttribute('NAME')
         alterId = [long](ConvertTo-Amount (Get-Text $_ 'ALTERID'))
-        parent  = Get-Text $_ 'PARENT'
-        group   = Get-Text $_ 'PRIMARYGROUP'
+        parent  = $parent
+        group   = if ($primary.ContainsKey($parent)) { $primary[$parent] } else { $parent }
         opening = ConvertTo-Amount (Get-Text $_ 'OPENINGBALANCE')
         closing = ConvertTo-Amount (Get-Text $_ 'CLOSINGBALANCE')
       }
@@ -270,45 +352,84 @@ function Sync-Company([string]$Company, [bool]$RunPresenceCheck) {
 
 # ---------------------------------------------------------------- main
 
-# One run at a time (a slow first sync must not overlap the next 15-minute run)
+# One run at a time (a long sync must not overlap the next check-in)
 $mutex = New-Object System.Threading.Mutex($false, 'Global\MCIFinanceTallyConnector')
-if (-not $mutex.WaitOne(0)) { Write-Log 'Another run is still going; skipping this one.'; exit 0 }
+if (-not $mutex.WaitOne(0)) { Write-Log 'A sync is still running; skipping this check-in.'; exit 0 }
 
 try {
-  if ($Test) {
-    Write-Log "Test run (nothing is sent). Connector $ConnectorVersion, Tally at $($Config.tallyUrl), source '$($Config.source)'"
-    $companies = @(Get-OpenCompanies)
-    if ($companies.Count -eq 0) { Write-Log 'Tally answered, but no company is open. Open the company in TallyPrime.' 'WARN' }
-    foreach ($c in $companies) {
-      $count = @(Get-Ledgers $c).Count
-      Write-Log "Tally company '$c': $count ledgers readable"
-      $s = Invoke-Api 'Get' ("/state?source={0}&company={1}" -f [uri]::EscapeDataString($Config.source), [uri]::EscapeDataString($c))
-      Write-Log "MCI Finance accepted the key. Vouchers on record up to AlterID $($s.maxVoucherAlterId)."
-    }
-    exit 0
+  $state = @{ lastPresenceCheck = ''; lastSyncAt = '' }
+  if (Test-Path $StateFile) {
+    try { $saved = Get-Content $StateFile -Raw | ConvertFrom-Json; $state.lastPresenceCheck = [string]$saved.lastPresenceCheck; $state.lastSyncAt = [string]$saved.lastSyncAt } catch { }
+  }
+  function Save-State { $state | ConvertTo-Json | Set-Content $StateFile -Encoding UTF8 }
+
+  # 1. What is on Tally's port?
+  $probe = Get-TallyProbe
+  if ($probe.state -eq 'not_running') {
+    [void](Send-Heartbeat 'tally_not_running' "Nothing is answering on port $TallyPort. Data syncs once someone opens $ExpectProduct with the company." $probe)
+    Write-Log "Tally is not running (nothing on port $TallyPort)." 'WARN'; exit 0
+  }
+  if ($probe.state -eq 'not_responding') {
+    [void](Send-Heartbeat 'tally_not_responding' 'Tally is open but not answering. Usually a message box or an open entry screen in Tally is waiting: close it and go back to Gateway of Tally.' $probe)
+    Write-Log "Tally is open (session of '$($probe.user)') but not answering." 'WARN'; exit 0
+  }
+  $who = if ($probe.user) { " (opened by $($probe.user))" } else { '' }
+  if ($ExpectProduct -and $probe.product -and $probe.product -notlike "*$ExpectProduct*") {
+    [void](Send-Heartbeat 'wrong_tally' "$($probe.product)$who is using port $TallyPort, not $ExpectProduct. Close it, then reopen $ExpectProduct." $probe)
+    Write-Log "$($probe.product)$who holds port $TallyPort, not $ExpectProduct; not reading it." 'WARN'; exit 0
   }
 
-  $state = @{ lastPresenceCheck = '' }
-  if (Test-Path $StateFile) { try { $state.lastPresenceCheck = (Get-Content $StateFile -Raw | ConvertFrom-Json).lastPresenceCheck } catch { } }
+  # 2. Which companies are open?
+  try { $companies = @(Get-OpenCompanies) }
+  catch {
+    [void](Send-Heartbeat 'tally_not_responding' "Tally did not list its companies: $($_.Exception.Message)" $probe)
+    Write-Log "Tally did not list its companies: $($_.Exception.Message)" 'WARN'; exit 0
+  }
+  if ($companies.Count -eq 0) {
+    [void](Send-Heartbeat 'no_company' "$($probe.product)$who is open, but no company is loaded in it." $probe)
+    Write-Log "$($probe.product)$who is open, but no company is loaded." 'WARN'; exit 0
+  }
+
+  # 3. Is a sync due?
+  $last = [datetime]::MinValue
+  if ($state.lastSyncAt) { try { $last = [datetime]::Parse($state.lastSyncAt, $Invariant) } catch { } }
+  $due = $Full -or ((Get-Date) - $last).TotalMinutes -ge ($SyncMinutes - 0.5)
+  $requested = Send-Heartbeat 'idle' "$($probe.product)$who is open with $($companies -join ', ')." $probe $companies
+
+  if ($Test) {
+    Write-Log "Test: $($probe.product)$who on port $TallyPort; open: $($companies -join ', ')"
+    foreach ($c in $companies) { Write-Log "Tally company '$c': $(@(Get-Ledgers $c).Count) ledgers readable" }
+    Write-Log 'MCI Finance accepted the check-in. No data was sent.'
+    exit 0
+  }
+  if (-not $due -and -not $requested) { exit 0 }
+
+  # 4. Sync
   $today = (Get-Date).ToString('yyyy-MM-dd')
   $presence = $Full -or ($state.lastPresenceCheck -ne $today -and (Get-Date).Hour -ge $PresenceHour)
+  $why = if ($requested) { 'requested from the dashboard' } elseif ($Full) { 'full sync' } else { "every $SyncMinutes minutes" }
+  Write-Log "Sync starting ($why): $($companies -join ', ')"
+  [void](Send-Heartbeat 'syncing' "Syncing $($companies -join ', ') ($why)." $probe $companies -StartingRequestedSync:$requested)
 
-  try { $companies = @(Get-OpenCompanies) }
-  catch { Write-Log "Tally is not answering at $($Config.tallyUrl): $($_.Exception.Message). Is TallyPrime open?" 'WARN'; exit 0 }
-  if ($companies.Count -eq 0) { Write-Log 'No company is open in Tally; nothing to send.' 'WARN'; exit 0 }
-
-  $failed = 0
+  $failed = @()
   foreach ($c in $companies) {
     try { Sync-Company $c $presence }
     catch {
-      $failed++
+      $failed += $c
       $msg = $_.Exception.Message
       Write-Log "$c : FAILED - $msg" 'ERROR'
       try { [void](Invoke-Api 'Post' '/sync-log' @{ source = $Config.source; company = $c; ok = $false; error = $msg; connectorVersion = $ConnectorVersion; host = $env:COMPUTERNAME }) } catch { }
     }
   }
-  if ($presence -and $failed -eq 0) { @{ lastPresenceCheck = $today } | ConvertTo-Json | Set-Content $StateFile -Encoding UTF8 }
-  if ($failed -gt 0) { exit 1 }
+  if ($failed.Count -eq 0) {
+    $state.lastSyncAt = (Get-Date).ToString('o')
+    if ($presence) { $state.lastPresenceCheck = $today }
+    Save-State
+    [void](Send-Heartbeat 'synced' "Synced $($companies -join ', ')." $probe $companies -Synced)
+  } else {
+    [void](Send-Heartbeat 'error' "Sync failed for $($failed -join ', '). See the connector log on the Tally server." $probe $companies)
+    exit 1
+  }
 }
 finally {
   $mutex.ReleaseMutex()

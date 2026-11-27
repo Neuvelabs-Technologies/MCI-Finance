@@ -15,6 +15,7 @@ connectorRouter.post('/ledgers', connector.ingestLedgers);
 connectorRouter.post('/vouchers', connector.ingestVouchers);
 connectorRouter.post('/present', connector.markPresent);
 connectorRouter.post('/sync-log', connector.logSync);
+connectorRouter.post('/heartbeat', connector.heartbeat);
 
 // /api/tally/* — the dashboard, for signed-in admins who were given Tally access.
 export const dashboardRouter = Router();
@@ -23,3 +24,6 @@ dashboardRouter.get('/companies', controller.companies);
 dashboardRouter.get('/summary', controller.summary);
 dashboardRouter.get('/vouchers', controller.vouchers);
 dashboardRouter.get('/ledgers', controller.ledgerList);
+dashboardRouter.get('/status', controller.status);
+dashboardRouter.post('/sync-request', controller.requestSync);
+dashboardRouter.get('/report', controller.report);

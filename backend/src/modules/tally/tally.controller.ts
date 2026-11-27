@@ -1,7 +1,9 @@
-import type { NextFunction, Request, Response } from 'express';
+﻿import type { NextFunction, Request, Response } from 'express';
 import type { PipelineStage } from 'mongoose';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
-import { TallyLedger, TallySync, TallyVoucher } from '../../models/Tally.js';
+import { TallyConnector, TallyLedger, TallySync, TallyVoucher } from '../../models/Tally.js';
+import { badRequest } from '../../utils/ApiError.js';
+import { audit } from '../../utils/audit.js';
 import { escapeRegex, str } from '../../utils/http.js';
 import { tallyDate, target } from './tally.connector.js';
 
@@ -41,7 +43,7 @@ function period(q: Request['query']): { from?: Date; to?: Date; match: Record<st
   return { from, to, match: Object.keys(date).length ? { date } : {} };
 }
 
-/** GET /api/tally/companies — every Tally company the connector has sent, with its last sync. */
+/** GET /api/tally/companies â€” every Tally company the connector has sent, with its last sync. */
 export async function companies(_req: Request, res: Response) {
   const [syncs, counts] = await Promise.all([
     TallySync.aggregate<{ _id: { source: string; company: string }; last: Record<string, unknown>; lastOk?: Date }>([
@@ -76,7 +78,7 @@ export async function companies(_req: Request, res: Response) {
   res.json({ companies: list });
 }
 
-/** GET /api/tally/summary?source=&company=&from=&to= — the dashboard's figures. */
+/** GET /api/tally/summary?source=&company=&from=&to= â€” the dashboard's figures. */
 export async function summary(req: Request, res: Response) {
   const t = target(req.query);
   const p = period(req.query);
@@ -202,4 +204,62 @@ export async function ledgerList(req: Request, res: Response) {
     TallyLedger.distinct('group', { ...t, ...live }),
   ]);
   res.json({ items, total, page: pg.page, limit: pg.limit, groups: groups.filter(Boolean).sort() });
+}
+
+/** GET /api/tally/status â€” what each connector last reported (Tally open? which company? syncing?). */
+export async function status(_req: Request, res: Response) {
+  const connectors = await TallyConnector.find().sort({ source: 1 }).lean();
+  res.json({ connectors, now: new Date() });
+}
+
+/** POST /api/tally/sync-request { source } â€” "Sync now": the connector picks it up at its next check-in. */
+export async function requestSync(req: Request, res: Response) {
+  const source = str(req.body?.source).trim().toLowerCase();
+  if (!/^[a-z0-9_-]{1,30}$/.test(source)) throw badRequest('source is required');
+  const doc = await TallyConnector.findOneAndUpdate(
+    { source },
+    { $set: { syncRequestedAt: new Date(), syncRequestedBy: currentAdmin(req).email } },
+    { returnDocument: 'after' }
+  ).lean();
+  if (!doc) throw badRequest('The connector for this Tally has never checked in, so it cannot be asked to sync yet');
+  await audit(req, 'tally.sync_requested', { details: { source } });
+  res.json({ connector: doc });
+}
+
+/** GET /api/tally/report?source=&company=&from=&to= â€” profit and loss by ledger, and sales by customer, for the period. */
+export async function report(req: Request, res: Response) {
+  const t = target(req.query);
+  const p = period(req.query);
+  const vMatch = { ...t, ...counted, ...p.match };
+  const plGroups = [...GROUPS.income, ...GROUPS.expense];
+  const [byLedger, customers] = await Promise.all([
+    TallyVoucher.aggregate<{ _id: { group: string; ledger: string }; amount: number }>([
+      { $match: vMatch },
+      { $unwind: '$entries' },
+      { $match: { 'entries.group': { $in: plGroups } } },
+      { $group: { _id: { group: '$entries.group', ledger: '$entries.ledger' }, amount: { $sum: '$entries.amount' } } },
+    ]),
+    TallyVoucher.aggregate<{ _id: string; amount: number; count: number; last: Date }>([
+      { $match: { ...vMatch, baseType: 'Sales', party: { $ne: '' } } },
+      { $group: { _id: '$party', amount: { $sum: '$amount' }, count: { $sum: 1 }, last: { $max: '$date' } } },
+      { $sort: { amount: -1 } },
+      { $limit: 500 },
+    ]),
+  ]);
+  // Income shown as credit (positive), expenses as debit turned positive.
+  const sections = plGroups.map((group) => {
+    const income = GROUPS.income.includes(group);
+    const ledgers = byLedger
+      .filter((r) => r._id.group === group)
+      .map((r) => ({ name: r._id.ledger, amount: round(income ? r.amount : -r.amount) }))
+      .filter((l) => l.amount !== 0)
+      .sort((a, b) => b.amount - a.amount);
+    return { group, kind: income ? 'income' : 'expense', total: round(ledgers.reduce((s, l) => s + l.amount, 0)), ledgers };
+  });
+  res.json({
+    ...t,
+    period: { from: p.from ?? null, to: p.to ?? null },
+    pnl: sections.filter((s) => s.ledgers.length > 0),
+    customers: customers.map((c) => ({ party: c._id, amount: round(c.amount), count: c.count, last: c.last })),
+  });
 }

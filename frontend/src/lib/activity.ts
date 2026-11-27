@@ -27,6 +27,7 @@ export const ACTION_LABEL: Record<string, string> = {
   'admin.password_changed': 'Password changed',
   'admin.tally_granted': 'Tally dashboard access given',
   'admin.tally_revoked': 'Tally dashboard access removed',
+  'tally.sync_requested': 'Tally sync requested ("Sync now")',
   'export.xlsx': 'Excel export downloaded',
   'demo.loaded': 'Demo data loaded',
   'demo.cleared': 'Demo data removed',

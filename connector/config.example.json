@@ -1,10 +1,13 @@
 {
-  "tallyUrl": "http://localhost:9001",
+  "tallyUrl": "http://127.0.0.1:9001",
   "source": "gold",
+  "expectProduct": "TallyPrime",
   "companies": [],
   "apiBase": "https://finance-ae.wearemci.com",
   "connectorKey": "PASTE-THE-TALLY_CONNECTOR_KEY-FROM-APP-SERVICE-HERE",
   "fromDate": "2020-01-01",
+  "checkMinutes": 2,
+  "syncMinutes": 15,
   "batchSize": 500,
   "dailyCheckHour": 2
 }

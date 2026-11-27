@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Schedules the Tally connector to run every 15 minutes.
+  Schedules the Tally connector to check in every 2 minutes (it syncs every 15, or on "Sync now").
 
 .DESCRIPTION
   Default (no admin rights needed): runs as the signed-in Windows user, only while that user is signed in
@@ -23,7 +23,8 @@ param(
   [switch]$AsSystem,
   [switch]$Remove,
   [string]$TaskName = 'MCI Finance - Tally connector',
-  [int]$Minutes = 15
+  # How often the connector checks in. It syncs data every syncMinutes (config.json, 15) or when "Sync now" is pressed.
+  [int]$Minutes = 2
 )
 
 $ErrorActionPreference = 'Stop'

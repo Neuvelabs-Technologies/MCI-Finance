@@ -1,4 +1,4 @@
-import type { TallyCompany, TallyLedger, TallyPage, TallySummary, TallyVoucher } from '@/types';
+import type { TallyCompany, TallyConnectorStatus, TallyLedger, TallyPage, TallyReport, TallySummary, TallyVoucher } from '@/types';
 import { http } from './client';
 
 const BASE = '/api/tally';
@@ -26,4 +26,7 @@ export const tallyApi = {
   summary: (q: TallyQuery) => http.get<TallySummary>(`${BASE}/summary?${qs(q)}`),
   vouchers: (q: TallyQuery) => http.get<TallyPage<TallyVoucher> & { types: string[] }>(`${BASE}/vouchers?${qs(q)}`),
   ledgers: (q: TallyQuery) => http.get<TallyPage<TallyLedger> & { groups: string[] }>(`${BASE}/ledgers?${qs(q)}`),
+  status: () => http.get<{ connectors: TallyConnectorStatus[]; now: string }>(`${BASE}/status`),
+  requestSync: (source: string) => http.post<{ connector: TallyConnectorStatus }>(`${BASE}/sync-request`, { source }),
+  report: (q: TallyQuery) => http.get<TallyReport>(`${BASE}/report?${qs(q)}`),
 };
