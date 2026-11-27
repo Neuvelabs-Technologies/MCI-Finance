@@ -6,7 +6,7 @@ import { tallyApi } from '@/api/tally.api';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { GroupPlReport } from '@/types';
@@ -139,70 +139,39 @@ export function GroupPl({ source, company }: { source: string; company: string }
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">
-          <Select value={String(year)} onValueChange={(v) => (setYear(Number(v)), setMonth(undefined), setForecastId(undefined))}>
-            <SelectTrigger className="w-28" aria-label="Year">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {years.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={String(data.month)} onValueChange={(v) => setMonth(Number(v))}>
-            <SelectTrigger className="w-52" aria-label="Actual up to">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {MONTHS.map((m, i) => (
-                <SelectItem key={m} value={String(i + 1)}>
-                  Actual to end of {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={effectiveView} onValueChange={(v) => setView(v as View)}>
-            <SelectTrigger className="w-48" aria-label="View">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(VIEWS).map(([k, label]) => (
-                <SelectItem key={k} value={k} disabled={k !== 'actual' && !forecast}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchSelect
+            className="w-28"
+            contentClassName="min-w-32"
+            aria-label="Year"
+            value={String(year)}
+            onValueChange={(v) => (setYear(Number(v)), setMonth(undefined), setForecastId(undefined))}
+            options={years.map((y) => ({ value: String(y), label: String(y) }))}
+          />
+          <SearchSelect
+            className="w-52"
+            aria-label="Actual up to"
+            value={String(data.month)}
+            onValueChange={(v) => setMonth(Number(v))}
+            options={MONTHS.map((m, i) => ({ value: String(i + 1), label: `Actual to end of ${m}` }))}
+          />
+          <SearchSelect
+            className="w-48"
+            aria-label="View"
+            value={effectiveView}
+            onValueChange={(v) => setView(v as View)}
+            options={Object.entries(VIEWS).map(([k, label]) => ({ value: k, label, disabled: k !== 'actual' && !forecast }))}
+          />
           {effectiveView === 'compare' ? (
-            <Select value={column} onValueChange={setColumn}>
-              <SelectTrigger className="w-56" aria-label="Column">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {data.columns.map((c) => (
-                  <SelectItem key={c.key} value={c.key}>
-                    {c.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchSelect className="w-56" aria-label="Column" value={column} onValueChange={setColumn} options={data.columns.map((c) => ({ value: c.key, label: c.label }))} />
           ) : null}
           {data.forecasts.length > 1 ? (
-            <Select value={data.forecast?.id} onValueChange={setForecastId}>
-              <SelectTrigger className="w-72" aria-label="Forecast">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {data.forecasts.map((f, i) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.label || f.fileName} · {fmtDateTime(f.uploadedAt)}
-                    {i === 0 ? ' (latest)' : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchSelect
+              className="w-72"
+              aria-label="Forecast"
+              value={data.forecast?.id}
+              onValueChange={setForecastId}
+              options={data.forecasts.map((f, i) => ({ value: f.id, label: `${f.label || f.fileName} · ${fmtDateTime(f.uploadedAt)}${i === 0 ? ' (latest)' : ''}` }))}
+            />
           ) : null}
         </CardContent>
       </Card>

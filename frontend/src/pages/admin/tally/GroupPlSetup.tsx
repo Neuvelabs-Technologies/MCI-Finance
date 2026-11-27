@@ -6,7 +6,8 @@ import { tallyApi } from '@/api/tally.api';
 import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input, fieldClass } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
+import { SearchSelect } from '@/components/ui/search-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/menu';
 import { cn } from '@/lib/utils';
 import type { GroupPlSetupData, GroupPlSetupResponse } from '@/types';
@@ -31,8 +32,6 @@ const TREATMENT_LABEL: Record<string, string> = {
   corporate: 'All to Corporate Division',
   specialty: 'All to Specialty',
 };
-
-const selectClass = cn(fieldClass, 'h-9 px-2 text-sm');
 
 interface Props {
   open: boolean;
@@ -148,14 +147,14 @@ const Th = ({ children, className }: { children?: ReactNode; className?: string 
 
 function AccountSelect({ value, onChange, accounts, empty = 'Not linked' }: { value: string; onChange: (v: string) => void; accounts: GroupPlSetupResponse['accounts']; empty?: string }) {
   return (
-    <select className={selectClass} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">{empty}</option>
-      {accounts.map((a) => (
-        <option key={a.code} value={a.code}>
-          {a.code} · {a.name}
-        </option>
-      ))}
-    </select>
+    <SearchSelect
+      size="sm"
+      value={value}
+      onValueChange={onChange}
+      options={useMemo(() => [{ value: '', label: empty }, ...accounts.map((a) => ({ value: a.code, label: `${a.code} · ${a.name}` }))], [accounts, empty])}
+      searchPlaceholder="Type a code or account name…"
+      contentClassName="min-w-96"
+    />
   );
 }
 
@@ -238,14 +237,16 @@ function Accounts({ data, draft, setDraft, target, onChanged }: TabProps & { tar
         {mode !== 'deleted' ? (
           <>
             <Input className="h-9 w-56 px-3" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-            <select className={cn(selectClass, 'w-64')} value={under} onChange={(e) => setUnder(e.target.value)} aria-label="Filter by Tally group">
-              <option value="">All Tally groups</option>
-              {scopeGroups.map((g) => (
-                <option key={g.name} value={g.name}>
-                  {g.name} ({g.ledgers})
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              size="sm"
+              className="w-64"
+              contentClassName="min-w-80"
+              aria-label="Filter by Tally group"
+              value={under}
+              onValueChange={setUnder}
+              searchPlaceholder="Type a Tally group…"
+              options={[{ value: '', label: 'All Tally groups' }, ...scopeGroups.map((g) => ({ value: g.name, label: g.name, hint: `(${g.ledgers})` }))]}
+            />
             {mode === 'ledger' ? (
               <label className="flex items-center gap-1.5 text-sm">
                 <input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} /> Only not linked
@@ -426,14 +427,12 @@ function Projects({ data, draft, setDraft }: TabProps) {
                 <td className="px-3 py-1.5 text-right tabular-nums">{c.lines}</td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">{moneyWhole(c.amount)}</td>
                 <td className="px-3 py-1.5">
-                  <select className={selectClass} value={map.get(c.name) ?? ''} onChange={(e) => set(c.name, e.target.value)}>
-                    <option value="">Not set (Back-Office)</option>
-                    {data.serviceLines.map((s) => (
-                      <option key={s} value={s}>
-                        {SERVICE_LINE_LABEL[s] ?? s}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchSelect
+                    size="sm"
+                    value={map.get(c.name) ?? ''}
+                    onValueChange={(v) => set(c.name, v)}
+                    options={[{ value: '', label: 'Not set (Back-Office)' }, ...data.serviceLines.map((s) => ({ value: s, label: SERVICE_LINE_LABEL[s] ?? s }))]}
+                  />
                 </td>
               </tr>
             ))}
@@ -479,13 +478,12 @@ function Allocation({ data, draft, setDraft }: TabProps) {
                     {changed ? <span className="ml-2 text-xs font-bold text-primary">changed (default: {TREATMENT_LABEL[a.treatment]})</span> : null}
                   </td>
                   <td className="px-3 py-1.5">
-                    <select className={selectClass} value={value} onChange={(e) => set(a.code, e.target.value, a.treatment)}>
-                      {data.treatments.map((t) => (
-                        <option key={t} value={t}>
-                          {TREATMENT_LABEL[t] ?? t}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      size="sm"
+                      value={value}
+                      onValueChange={(v) => set(a.code, v, a.treatment)}
+                      options={data.treatments.map((t) => ({ value: t, label: TREATMENT_LABEL[t] ?? t }))}
+                    />
                   </td>
                 </tr>
               );
@@ -515,13 +513,15 @@ function Hr({ data, draft, setDraft, year: initialYear }: TabProps & { year: num
       </p>
       <label className="flex items-center gap-2 text-sm">
         Year
-        <select className={cn(selectClass, 'w-28')} value={year} onChange={(e) => setYear(Number(e.target.value))}>
-          {[initialYear + 1, initialYear, initialYear - 1, initialYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
+        <SearchSelect
+          size="sm"
+          className="w-28"
+          contentClassName="min-w-32"
+          aria-label="Year"
+          value={String(year)}
+          onValueChange={(v) => setYear(Number(v))}
+          options={[initialYear + 1, initialYear, initialYear - 1, initialYear - 2].map((y) => ({ value: String(y), label: String(y) }))}
+        />
       </label>
       <table className="w-full max-w-2xl text-sm">
         <thead>

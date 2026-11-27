@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/controls';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { EMIRATES } from '@/lib/rules';
 import type { Entity } from '@/types';
 
@@ -211,19 +211,12 @@ function EntityDialog({ entity, onClose, onSaved }: { entity: Entity | null; onC
               {text('peppolId', { mono: true })}
             </FormField>
             <FormField label="Emirate" htmlFor="e-emirate">
-              <Select value={f.emirate || 'none'} onValueChange={(v) => set('emirate', v === 'none' ? '' : v)}>
-                <SelectTrigger id="e-emirate">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">—</SelectItem>
-                  {[...EMIRATES, ...(f.emirate && !EMIRATES.includes(f.emirate) ? [f.emirate] : [])].map((x) => (
-                    <SelectItem key={x} value={x}>
-                      {x}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                id="e-emirate"
+                value={f.emirate || ''}
+                onValueChange={(v) => set('emirate', v)}
+                options={[{ value: '', label: '—' }, ...[...EMIRATES, ...(f.emirate && !EMIRATES.includes(f.emirate) ? [f.emirate] : [])].map((x) => ({ value: x, label: x }))]}
+              />
             </FormField>
             <ToggleField label="Free zone based" checked={!!f.freeZone} onChange={(v) => set('freeZone', v)} />
             <FormField label="Full address" htmlFor="e-address" className="sm:col-span-3">

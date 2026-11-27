@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { fmtDate, fmtDateTime, relativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { TallyAmountRow, TallyCompany, TallySummary } from '@/types';
@@ -139,31 +139,21 @@ export default function TallyDashboard() {
           companies && companies.length > 0 ? (
             <>
               {companies.length > 1 ? (
-                <Select value={selected ? companyKey(selected) : undefined} onValueChange={(v) => set({ c: v })}>
-                  <SelectTrigger className="w-64" aria-label="Tally company">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companies.map((c) => (
-                      <SelectItem key={companyKey(c)} value={companyKey(c)}>
-                        {c.company} · {sourceLabel(c.source)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  className="w-64"
+                  aria-label="Tally company"
+                  value={selected ? companyKey(selected) : undefined}
+                  onValueChange={(v) => set({ c: v })}
+                  options={companies.map((c) => ({ value: companyKey(c), label: `${c.company} · ${sourceLabel(c.source)}` }))}
+                />
               ) : null}
-              <Select value={period} onValueChange={(v) => set({ period: v })}>
-                <SelectTrigger className="w-44" aria-label="Period">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PERIODS).map(([k, label]) => (
-                    <SelectItem key={k} value={k}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                className="w-44"
+                aria-label="Period"
+                value={period}
+                onValueChange={(v) => set({ period: v })}
+                options={Object.entries(PERIODS).map(([k, label]) => ({ value: k, label }))}
+              />
               {period === 'custom' ? (
                 <span className="flex items-center gap-2">
                   <Input type="date" className="w-40" aria-label="From date" value={params.get('from') ?? ''} onChange={(e) => set({ from: e.target.value })} />

@@ -5,7 +5,7 @@ import { ErrorState, LoadingState } from '@/components/common/StateViews';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fmtDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,6 @@ import { HiddenLedgersDialog } from './HiddenLedgers';
 import { money } from './money';
 
 const LIMIT = 50;
-const ALL = '__all';
 
 /** Waits until typing stops before searching. */
 function useDebounced<T>(value: T, ms = 300): T {
@@ -49,19 +48,13 @@ function Toolbar({
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input className="pl-9" value={search} onChange={(e) => onSearch(e.target.value)} placeholder={placeholder} aria-label={placeholder} />
       </div>
-      <Select value={filter || ALL} onValueChange={(v) => onFilter(v === ALL ? '' : v)}>
-        <SelectTrigger className="w-56" aria-label={allLabel}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>{allLabel}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o} value={o}>
-              {o}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchSelect
+        className="w-56"
+        aria-label={allLabel}
+        value={filter}
+        onValueChange={onFilter}
+        options={[{ value: '', label: allLabel }, ...options.map((o) => ({ value: o, label: o }))]}
+      />
     </div>
   );
 }

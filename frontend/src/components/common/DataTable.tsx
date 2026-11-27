@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ChevronsUpDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox, Spinner } from '@/components/ui/controls';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { ErrorState } from './StateViews';
@@ -221,18 +221,15 @@ export function DataTable<T>({
             {onPageSizeChange ? (
               <>
                 <span>Rows per page</span>
-                <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-                  <SelectTrigger size="sm" className="w-20" aria-label="Rows per page">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAGE_SIZES.map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        {n}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  size="sm"
+                  className="w-20"
+                  contentClassName="min-w-28"
+                  aria-label="Rows per page"
+                  value={String(pageSize)}
+                  onValueChange={(v) => onPageSizeChange(Number(v))}
+                  options={PAGE_SIZES.map((n) => ({ value: String(n), label: String(n) }))}
+                />
               </>
             ) : null}
           </div>

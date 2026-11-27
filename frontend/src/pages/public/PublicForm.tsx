@@ -21,7 +21,8 @@ import { publicApi } from '@/api/public.api';
 import { FormField, FormSection, Notice } from '@/components/common/Form';
 import { Button } from '@/components/ui/button';
 import { Checkbox, Progress, Spinner } from '@/components/ui/controls';
-import { Input, Textarea, fieldClass } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
+import { SearchSelect } from '@/components/ui/search-select';
 import { fmtDate, fmtDateTime, fmtSize } from '@/lib/format';
 import {
   COUNTRIES,
@@ -104,12 +105,6 @@ function clearDraft(t: string): void {
 }
 
 type LoadState = { status: 'loading' } | { status: 'error'; kind: LinkProblemKind; settings?: PublicFormResponse['settings'] } | { status: 'ready'; res: PublicFormResponse };
-
-const nativeSelect = cn(fieldClass, 'h-11 appearance-none bg-[length:16px] bg-[right_0.75rem_center] bg-no-repeat pr-9 pl-3');
-const chevron = {
-  backgroundImage:
-    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23566171' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")",
-};
 
 export default function PublicForm() {
   const { token = '' } = useParams();
@@ -595,17 +590,14 @@ export default function PublicForm() {
                 <Input className="h-11 font-mono" value={cust.code} readOnly />
               </FormField>
               <FormField label={LABELS.country} required={req('country')} error={err('country')} htmlFor="country">
-                <select id="country" className={nativeSelect} style={chevron} value={data.country || UAE} onChange={(e) => set('country', e.target.value)}>
-                  {COUNTRIES.map((c) =>
-                    c === '—' ? (
-                      <option key={c} disabled>
-                        ──────────
-                      </option>
-                    ) : (
-                      <option key={c}>{c}</option>
-                    )
-                  )}
-                </select>
+                <SearchSelect
+                  id="country"
+                  className="h-11"
+                  value={data.country || UAE}
+                  onValueChange={(v) => set('country', v)}
+                  searchPlaceholder="Type a country…"
+                  options={COUNTRIES.map((c) => (c === '—' ? { value: c, label: '──────────', disabled: true } : { value: c, label: c }))}
+                />
               </FormField>
               <FormField label={LABELS.companyName} required={req('companyName')} error={err('companyName')} htmlFor="companyName" className="sm:col-span-2">
                 {text('companyName', { autoComplete: 'organization' })}
@@ -613,13 +605,13 @@ export default function PublicForm() {
               {isUae ? (
                 <>
                   <FormField label={LABELS.legalIdType} required={req('legalIdType')} error={err('legalIdType')} htmlFor="legalIdType" help="Most companies use their trade licence.">
-                    <select id="legalIdType" className={nativeSelect} style={chevron} value={data.legalIdType || 'TL'} onChange={(e) => set('legalIdType', e.target.value)}>
-                      {LEGAL_ID_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      id="legalIdType"
+                      className="h-11"
+                      value={data.legalIdType || 'TL'}
+                      onValueChange={(v) => set('legalIdType', v)}
+                      options={LEGAL_ID_TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                    />
                   </FormField>
                   <FormField label={idl.no} required={req('tradeLicenceNo')} error={err('tradeLicenceNo')} htmlFor="tradeLicenceNo">
                     {text('tradeLicenceNo', { mono: true })}
@@ -631,22 +623,18 @@ export default function PublicForm() {
                     {text('tradeLicenceExpiry', { type: 'date' })}
                   </FormField>
                   <FormField label={LABELS.emirate} required={req('emirate')} error={err('emirate')} htmlFor="emirate">
-                    <select
+                    <SearchSelect
                       id="emirate"
-                      className={nativeSelect}
-                      style={chevron}
-                      aria-invalid={!!err('emirate')}
+                      className="h-11"
+                      invalid={!!err('emirate')}
                       value={data.emirate || ''}
-                      onChange={(e) => {
-                        set('emirate', e.target.value);
+                      placeholder="Select…"
+                      onValueChange={(v) => {
+                        set('emirate', v);
                         touch('emirate');
                       }}
-                    >
-                      <option value="">Select…</option>
-                      {EMIRATES.map((em) => (
-                        <option key={em}>{em}</option>
-                      ))}
-                    </select>
+                      options={EMIRATES.map((em) => ({ value: em, label: em }))}
+                    />
                   </FormField>
                   <FormField label="Free zone based?" optional>
                     {yesNo('freeZone')}

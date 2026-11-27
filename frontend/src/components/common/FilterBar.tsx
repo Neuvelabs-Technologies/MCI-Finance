@@ -1,7 +1,7 @@
 import { Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SearchSelect } from '@/components/ui/search-select';
 
 export interface FilterDef {
   name: string;
@@ -47,19 +47,15 @@ export function FilterBar({ search = '', onSearchChange, searchPlaceholder = 'Se
         </div>
       ) : null}
       {filters.map((f) => (
-        <Select key={f.name} value={f.value || 'all'} onValueChange={(v) => f.onChange(v === 'all' ? '' : v)}>
-          <SelectTrigger size="sm" className="w-full text-sm sm:w-44" aria-label={f.label}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All {f.label.toLowerCase()}</SelectItem>
-            {f.options.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchSelect
+          key={f.name}
+          size="sm"
+          className="w-full text-sm sm:w-44"
+          aria-label={f.label}
+          value={f.value || ''}
+          onValueChange={f.onChange}
+          options={[{ value: '', label: `All ${f.label.toLowerCase()}` }, ...f.options]}
+        />
       ))}
       {active && onReset ? (
         <Button variant="ghost" size="sm" onClick={onReset}>
