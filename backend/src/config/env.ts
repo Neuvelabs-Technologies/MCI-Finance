@@ -114,7 +114,8 @@ export const config = {
       .split(/[;,\s]+/)
       .map((s) => s.trim())
       .filter(Boolean),
-    // Emails that always see the Tally dashboard (comma-separated). They can give it to others in Settings → Users.
+    // Optional: emails that always see the Tally dashboard (comma-separated). Normally any admin
+    // switches it on per user in Settings → Users, and this stays empty.
     users: env('TALLY_USERS', '')
       .split(/[;,\s]+/)
       .map((s) => s.trim().toLowerCase())

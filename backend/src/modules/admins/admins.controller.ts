@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { currentAdmin } from '../../middlewares/auth.middleware.js';
 import { Admin } from '../../models/Admin.js';
-import { ApiError, badRequest, notFound } from '../../utils/ApiError.js';
+import { badRequest, notFound } from '../../utils/ApiError.js';
 import { audit } from '../../utils/audit.js';
 import { isId, str } from '../../utils/http.js';
 import { isEmail } from '../../utils/rules.js';
@@ -23,11 +23,10 @@ export async function create(req: Request, res: Response) {
   res.status(201).json({ admin: a.toSafe() });
 }
 
-/** PUT /api/admins/:id/tally { enabled } — give or take away the Tally dashboard. Only for admins who have it themselves. */
+/** PUT /api/admins/:id/tally { enabled } — give or take away the Tally dashboard. Any admin can (Settings → Users). */
 export async function setTally(req: Request, res: Response) {
   const { id } = req.params;
   if (!isId(id)) throw notFound();
-  if (!currentAdmin(req).hasTallyAccess()) throw new ApiError(403, 'Only users with Tally dashboard access can change who has it');
   if (typeof req.body?.enabled !== 'boolean') throw badRequest('enabled must be true or false');
   const a = await Admin.findById(id);
   if (!a) throw notFound();

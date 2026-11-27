@@ -32,3 +32,8 @@ backend/public/
 connector/config.json
 connector/state.json
 connector/logs/
+
+# Local copy of the Tally connector config (holds the connector key)
+backend/config.json
+config.json
+connector/config.json

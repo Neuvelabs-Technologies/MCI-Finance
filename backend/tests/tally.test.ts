@@ -177,14 +177,14 @@ describe('tally dashboard', () => {
     expect(r.body.companies[0]).toMatchObject({ ...T, vouchers: 3 });
   });
 
-  it('lets a Tally user give and take access, but not someone without it', async () => {
+  it('lets any admin give and take access', async () => {
     const other = await signedInAs(OTHER_EMAIL);
     const admin = await signedInAs(ADMIN_EMAIL);
     const me = (await Admin.findOne({ email: ADMIN_EMAIL }))!;
     const them = (await Admin.findOne({ email: OTHER_EMAIL }))!;
 
-    expect((await other.put(`/api/admins/${String(me._id)}/tally`).send({ enabled: true })).status).toBe(403);
-    expect((await admin.put(`/api/admins/${String(them._id)}/tally`).send({ enabled: true })).body.admin.tally).toBe(true);
+    // An admin without Tally access can switch it on (here, for themselves)
+    expect((await other.put(`/api/admins/${String(them._id)}/tally`).send({ enabled: true })).body.admin.tally).toBe(true);
     expect((await other.get('/api/tally/companies')).status).toBe(200);
     expect((await admin.put(`/api/admins/${String(them._id)}/tally`).send({ enabled: false })).body.admin.tally).toBe(false);
     expect((await other.get('/api/tally/companies')).status).toBe(403);

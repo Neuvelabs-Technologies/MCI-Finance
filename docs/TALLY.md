@@ -65,7 +65,7 @@ Nothing in Tally was changed. No data was deleted. Nothing was installed system-
 |---|---|
 | `TALLY_CONNECTOR_KEY` | the `connectorKey` from `config.json` on the Tally server |
 | `TALLY_ALLOWED_IPS` | `13.81.244.133` (the Tally server's outbound IP; leave empty if it can change) |
-| `TALLY_USERS` | the two people's emails, comma-separated, e.g. `name1@wearemci.com,name2@wearemci.com` |
+| `TALLY_USERS` | *optional, usually empty.* Access is set in the app (step D). Emails listed here always have it and can't be switched off in the app |
 
 Saving restarts the app (a few seconds). Until `TALLY_CONNECTOR_KEY` is set, the connector gets *503 not set up* and nothing is stored.
 
@@ -97,9 +97,9 @@ Both `tally.ini` files say `ServerPort=9001`. Whichever Tally starts first takes
 
 Once ERP 9 is retired, this doesn't matter.
 
-### D. Give the two users access
+### D. Give the users access
 
-After A, the people in `TALLY_USERS` see **Reports → Tally reports** in the sidebar. They can switch it on for anyone else in **Settings → Users** (the *Tally reports* column, visible only to them). Nobody else sees the menu or can call the API.
+Any admin opens **Settings → Users** and turns on the *Tally reports* switch for each person who should see it (they can turn it on for themselves too). Those users then see **Reports → Tally reports** in the sidebar. Nobody else sees the menu or can call the API. Every change is recorded in Activity.
 
 ### E. Check it works
 

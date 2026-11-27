@@ -62,11 +62,7 @@ export function UsersSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <FormSection icon={Users} title="Admin users" description={
-          admin.tally
-            ? 'Everyone here can see all customer data and documents, send emails and change settings. Only users switched on under Tally reports see the Tally dashboard.'
-            : 'Everyone here can see all customer data and documents, send emails and change settings.'
-        }
+      <FormSection icon={Users} title="Admin users" description="Everyone here can see all customer data and documents, send emails and change settings. Only users switched on under Tally reports see the Tally dashboard."
       >
         <div className="-mx-5 -mt-5 mb-5 border-b border-border md:-mx-6">
           <Table>
@@ -75,7 +71,7 @@ export function UsersSettings() {
                 <TableHead className="pl-5 md:pl-6">Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Last sign-in</TableHead>
-                {admin.tally ? <TableHead>Tally reports</TableHead> : null}
+                <TableHead>Tally reports</TableHead>
                 <TableHead className="pr-5 text-right md:pr-6">
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -91,19 +87,17 @@ export function UsersSettings() {
                     {a.email} {a.microsoft ? <Badge>Microsoft</Badge> : null}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{a.lastLoginAt ? fmtDateTime(a.lastLoginAt) : 'Never'}</TableCell>
-                  {admin.tally ? (
-                    <TableCell>
-                      <span className="flex items-center gap-2" title={a.tallyFixed ? 'Set on the server (TALLY_USERS)' : undefined}>
-                        <Switch
-                          checked={!!a.tally}
-                          disabled={!!a.tallyFixed}
-                          onCheckedChange={(on) => void setTally(a, on)}
-                          aria-label={`Tally reports for ${a.email}`}
-                        />
-                        {a.tallyFixed ? <span className="text-xs text-muted-foreground">Always</span> : null}
-                      </span>
-                    </TableCell>
-                  ) : null}
+                  <TableCell>
+                    <span className="flex items-center gap-2" title={a.tallyFixed ? 'Set on the server (TALLY_USERS)' : undefined}>
+                      <Switch
+                        checked={!!a.tally}
+                        disabled={!!a.tallyFixed}
+                        onCheckedChange={(on) => void setTally(a, on)}
+                        aria-label={`Tally reports for ${a.email}`}
+                      />
+                      {a.tallyFixed ? <span className="text-xs text-muted-foreground">Always</span> : null}
+                    </span>
+                  </TableCell>
                   <TableCell className="pr-5 text-right md:pr-6">
                     {a.id !== admin.id ? (
                       <Button variant="ghost" size="sm" className="text-danger" onClick={() => setRemoving(a)}>

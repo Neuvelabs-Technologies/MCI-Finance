@@ -10,7 +10,7 @@ export interface IAdmin {
   lastLoginAt?: Date;
   /** Bumped on password change; sessions signed with an older value stop working. */
   sessionVersion: number;
-  /** Given the Tally dashboard in Settings → Users (TALLY_USERS always have it). */
+  /** Given the Tally dashboard by an admin in Settings → Users (TALLY_USERS, if set, always have it). */
   tallyAccess?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
