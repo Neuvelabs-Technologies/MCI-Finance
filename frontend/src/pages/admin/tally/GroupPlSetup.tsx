@@ -81,7 +81,7 @@ export function GroupPlSetup({ open, onOpenChange, source, company, year, onSave
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] w-[min(1100px,95vw)] max-w-none flex-col">
+      <DialogContent className="flex max-h-[92vh] w-[min(1500px,96vw)] max-w-none sm:max-w-none flex-col">
         <DialogHeader>
           <DialogTitle>Group P&L setup · {company}</DialogTitle>
           <DialogDescription>How Tally's books fill the group report. Nothing here changes Tally.</DialogDescription>
